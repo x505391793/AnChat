@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录验证</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-card {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+            padding: 40px 36px;
+            width: 380px;
+            max-width: 90vw;
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .login-header .icon {
+            width: 56px;
+            height: 56px;
+            background: #324969;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 16px;
+        }
+
+        .login-header .icon svg {
+            width: 28px;
+            height: 28px;
+            fill: #fff;
+        }
+
+        .login-header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 6px;
+        }
+
+        .login-header p {
+            font-size: 13px;
+            color: #8c8c8c;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #4a4a4a;
+            margin-bottom: 6px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1.5px solid #d9d9d9;
+            border-radius: 8px;
+            font-size: 15px;
+            color: #1a1a2e;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus {
+            border-color: #324969;
+            box-shadow: 0 0 0 3px rgba(50, 73, 105, 0.12);
+        }
+
+        .error-msg {
+            font-size: 13px;
+            color: #e74c3c;
+            margin-top: 6px;
+            display: none;
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 11px;
+            background: #324969;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .login-btn:hover {
+            background: #243651;
+        }
+
+        .login-btn:active {
+            transform: scale(0.98);
+        }
+
+        .login-btn:disabled {
+            background: #a0b0c4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .footer-note {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #bbb;
+        }
+    </style>
+</head>
+<body>
+<div class="login-card">
+    <div class="login-header">
+        <div class="icon">
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
+        </div>
+        <h1>访问验证</h1>
+        <p>您的 IP 不在白名单内，请输入密码登录</p>
+    </div>
+
+    <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+            <label for="password">登录密码</label>
+            <input type="password" id="password" placeholder="请输入密码" autocomplete="current-password" autofocus />
+            <div class="error-msg" id="errorMsg"></div>
+        </div>
+        <button type="submit" class="login-btn" id="loginBtn">登 录</button>
+    </form>
+</div>
+
+<script>
+    // 从 URL 中读取 redirect 参数
+    function getRedirect() {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('redirect') || '/';
+    }
+
+    async function handleLogin(e) {
+        e.preventDefault();
+        const btn = document.getElementById('loginBtn');
+        const input = document.getElementById('password');
+        const errorMsg = document.getElementById('errorMsg');
+
+        errorMsg.style.display = 'none';
+        btn.disabled = true;
+        btn.textContent = '登录中...';
+
+        try {
+            const resp = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    password: input.value,
+                    redirect: getRedirect()
+                })
+            });
+
+            const data = await resp.json();
+
+            if (data.success) {
+                // 登录成功，跳转回原页面
+                window.location.href = data.redirect || '/';
+            } else {
+                errorMsg.textContent = data.message || '登录失败';
+                errorMsg.style.display = 'block';
+                input.focus();
+            }
+        } catch (err) {
+            errorMsg.textContent = '网络错误，请重试';
+            errorMsg.style.display = 'block';
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '登 录';
+        }
+    }
+</script>
+</body>
+</html>

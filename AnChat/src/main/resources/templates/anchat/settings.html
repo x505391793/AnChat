@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<div th:include="index.html"></div>
+<style>
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding-bottom: 20px;
+    }
+
+    .settings-container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 20px 15px;
+    }
+
+    .settings-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        border-radius: 12px;
+        margin-bottom: 20px;
+        backdrop-filter: blur(10px);
+    }
+
+    .back-btn {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: white;
+        font-size: 20px;
+        cursor: pointer;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        transition: all 0.3s;
+        backdrop-filter: blur(10px);
+    }
+
+    .back-btn:hover {
+        background: rgba(255, 255, 255, 0.3);
+        transform: scale(1.05);
+    }
+
+    .back-btn:active {
+        transform: scale(0.95);
+    }
+
+    .settings-title {
+        font-size: 24px;
+        font-weight: 700;
+        flex: 1;
+        letter-spacing: 0.5px;
+    }
+
+    .settings-content {
+        background-color: white;
+        border-radius: 16px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        padding: 30px;
+        backdrop-filter: blur(10px);
+    }
+
+    .settings-section {
+        margin-bottom: 35px;
+    }
+
+    .settings-section:last-child {
+        margin-bottom: 0;
+    }
+
+    .section-title {
+        font-size: 20px;
+        font-weight: 700;
+        color: #333;
+        margin-bottom: 20px;
+        padding-bottom: 12px;
+        border-bottom: 3px solid transparent;
+        border-image: linear-gradient(90deg, #667eea, #764ba2) 1;
+        position: relative;
+    }
+
+    .section-title::after {
+        content: '';
+        position: absolute;
+        bottom: -3px;
+        left: 0;
+        width: 60px;
+        height: 3px;
+        background: linear-gradient(90deg, #667eea, #764ba2);
+        border-radius: 2px;
+    }
+
+    .setting-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .setting-item:last-child {
+        border-bottom: none;
+    }
+
+    .setting-label {
+        font-size: 15px;
+        color: #333;
+        flex: 1;
+    }
+
+    .setting-description {
+        font-size: 13px;
+        color: #999;
+        margin-top: 5px;
+    }
+
+    .setting-control {
+        flex-shrink: 0;
+    }
+
+    .model-list {
+        margin-top: 15px;
+    }
+
+    .model-item {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        padding: 16px;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 10px;
+        margin-bottom: 12px;
+        transition: all 0.3s;
+        border: 1px solid transparent;
+    }
+
+    .model-item:hover {
+        background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
+        border-color: #667eea;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+    }
+
+    .model-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .model-name {
+        font-size: 16px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 6px;
+        word-break: break-word;
+    }
+
+    .model-description {
+        font-size: 13px;
+        color: #666;
+        line-height: 1.6;
+        word-break: break-word;
+    }
+
+    .model-id {
+        font-size: 11px;
+        color: #667eea;
+        background: linear-gradient(135deg, #667eea15, #764ba215);
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .model-actions {
+        display: flex;
+        gap: 8px;
+        margin-left: 12px;
+        flex-shrink: 0;
+    }
+
+    .btn-edit,
+    .btn-delete,
+    .btn-save,
+    .btn-cancel {
+        padding: 8px 14px;
+        border: none;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        white-space: nowrap;
+    }
+
+    .btn-edit {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    }
+
+    .btn-edit:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-delete {
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+        color: white;
+        box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
+    }
+
+    .btn-delete:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+    }
+
+    .btn-save {
+        background: linear-gradient(135deg, #00c853 0%, #00a344 100%);
+        color: white;
+        box-shadow: 0 2px 8px rgba(0, 200, 83, 0.3);
+    }
+
+    .btn-save:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 200, 83, 0.4);
+    }
+
+    .btn-cancel {
+        background: linear-gradient(135deg, #999 0%, #777 100%);
+        color: white;
+    }
+
+    .btn-cancel:hover {
+        transform: translateY(-2px);
+    }
+
+    .model-description-input {
+        width: 100%;
+        padding: 10px 14px;
+        border: 2px solid #667eea;
+        border-radius: 8px;
+        font-size: 14px;
+        color: #333;
+        outline: none;
+        font-family: inherit;
+        transition: all 0.3s;
+        resize: vertical;
+        min-height: 150px;
+        line-height: 1.6;
+    }
+
+    .model-description-input:focus {
+        border-color: #764ba2;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .model-rules-input {
+        width: 100%;
+        padding: 10px 14px;
+        border: 2px solid #667eea;
+        border-radius: 8px;
+        font-size: 14px;
+        color: #333;
+        outline: none;
+        font-family: inherit;
+        transition: all 0.3s;
+        resize: vertical;
+        min-height: 150px;
+        line-height: 1.6;
+        margin-top: 10px;
+    }
+
+    .model-rules-input:focus {
+        border-color: #764ba2;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .model-name-input {
+        width: 100%;
+        padding: 12px 14px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 15px;
+        color: #333;
+        outline: none;
+        font-family: inherit;
+        margin-bottom: 10px;
+        transition: all 0.3s;
+    }
+
+    .model-name-input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .model-description-textarea {
+        width: 100%;
+        padding: 12px 14px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 15px;
+        color: #333;
+        outline: none;
+        font-family: inherit;
+        resize: vertical;
+        min-height: 100px;
+        margin-bottom: 12px;
+        transition: all 0.3s;
+        line-height: 1.6;
+    }
+
+    .model-description-textarea:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .add-model-section {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 2px dashed #667eea30;
+    }
+
+    .add-model-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: #333;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .add-model-title::before {
+        content: '✨';
+        font-size: 18px;
+    }
+
+    .btn-add {
+        background: linear-gradient(135deg, #00c853 0%, #00a344 100%);
+        color: white;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        box-shadow: 0 4px 12px rgba(0, 200, 83, 0.3);
+        width: 100%;
+    }
+
+    .btn-add:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0, 200, 83, 0.4);
+    }
+
+    .btn-add:active {
+        transform: translateY(0);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #999;
+    }
+
+    .empty-state svg {
+        width: 80px;
+        height: 80px;
+        margin-bottom: 20px;
+        opacity: 0.3;
+    }
+
+    .empty-state div {
+        font-size: 16px;
+        font-weight: 500;
+    }
+
+    /* 平板端优化 */
+    @media (max-width: 1024px) {
+        .settings-container {
+            padding: 15px;
+        }
+
+        .settings-content {
+            padding: 25px;
+        }
+    }
+
+    /* 移动端优化 */
+    @media (max-width: 768px) {
+        body {
+            background: #f5f5f5;
+            padding-bottom: 10px;
+        }
+
+        .settings-container {
+            padding: 10px;
+        }
+
+        .settings-header {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+
+        .back-btn {
+            width: 36px;
+            height: 36px;
+            font-size: 18px;
+        }
+
+        .settings-title {
+            font-size: 20px;
+        }
+
+        .settings-content {
+            padding: 20px 15px;
+            border-radius: 12px;
+            margin-top: 0;
+        }
+
+        .section-title {
+            font-size: 18px;
+            margin-bottom: 15px;
+        }
+
+        .model-item {
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 14px;
+        }
+
+        .model-info {
+            width: 100%;
+            margin-bottom: 12px;
+        }
+
+        .model-name {
+            font-size: 15px;
+        }
+
+        .model-description {
+            font-size: 12px;
+        }
+
+        .model-actions {
+            width: 100%;
+            margin-left: 0;
+            justify-content: flex-end;
+            gap: 6px;
+        }
+
+        .model-actions button {
+            flex: 1;
+            padding: 10px 12px;
+            font-size: 13px;
+        }
+
+        .add-model-section {
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .add-model-title {
+            font-size: 15px;
+        }
+
+        .model-name-input,
+        .model-description-textarea {
+            padding: 10px 12px;
+            font-size: 14px;
+        }
+
+        .btn-add {
+            padding: 12px 20px;
+            font-size: 14px;
+        }
+
+        .empty-state {
+            padding: 40px 20px;
+        }
+
+        .empty-state svg {
+            width: 60px;
+            height: 60px;
+        }
+    }
+
+    /* 小屏幕手机优化 */
+    @media (max-width: 480px) {
+        .settings-container {
+            padding: 8px;
+        }
+
+        .settings-header {
+            padding: 12px;
+        }
+
+        .settings-title {
+            font-size: 18px;
+        }
+
+        .settings-content {
+            padding: 15px 12px;
+        }
+
+        .section-title {
+            font-size: 16px;
+        }
+
+        .model-item {
+            padding: 12px;
+        }
+
+        .model-name {
+            font-size: 14px;
+        }
+
+        .model-description {
+            font-size: 11px;
+        }
+
+        .btn-edit,
+        .btn-delete,
+        .btn-save,
+        .btn-cancel {
+            padding: 8px 10px;
+            font-size: 12px;
+        }
+    }
+
+    /* 动画效果 */
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .model-item {
+        animation: fadeIn 0.3s ease-out;
+    }
+
+    .add-model-section {
+        animation: fadeIn 0.3s ease-out;
+    }
+
+    /* Tab 样式 */
+    .settings-tabs {
+        display: flex;
+        gap: 0;
+        margin-bottom: 0;
+        border-bottom: 2px solid #e0e0e0;
+    }
+
+    .settings-tab {
+        flex: 1;
+        padding: 14px 0;
+        text-align: center;
+        font-size: 16px;
+        font-weight: 600;
+        color: #999;
+        cursor: pointer;
+        border: none;
+        background: none;
+        transition: all 0.3s;
+        position: relative;
+    }
+
+    .settings-tab::after {
+        content: '';
+        position: absolute;
+        bottom: -2px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 0;
+        height: 3px;
+        background: linear-gradient(90deg, #667eea, #764ba2);
+        border-radius: 2px;
+        transition: width 0.3s;
+    }
+
+    .settings-tab.active {
+        color: #667eea;
+    }
+
+    .settings-tab.active::after {
+        width: 60%;
+    }
+
+    .settings-tab:hover {
+        color: #667eea;
+    }
+
+    .tab-panel {
+        display: none;
+        padding-top: 25px;
+    }
+
+    .tab-panel.active {
+        display: block;
+    }
+
+    /* 参数设置表单 */
+    .param-item {
+        padding: 18px 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .param-item:last-child {
+        border-bottom: none;
+    }
+
+    .param-label {
+        font-size: 15px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 4px;
+    }
+
+    .param-desc {
+        font-size: 13px;
+        color: #999;
+        margin-bottom: 10px;
+    }
+
+    .param-input {
+        width: 100%;
+        max-width: 300px;
+        padding: 10px 14px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 15px;
+        color: #333;
+        outline: none;
+        transition: all 0.3s;
+    }
+
+    .param-input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    select.param-input {
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23666' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 14px center;
+        padding-right: 36px;
+        cursor: pointer;
+    }
+
+    textarea.param-input {
+        max-width: 100%;
+        resize: vertical;
+        line-height: 1.6;
+        font-family: inherit;
+        overflow-y: auto;
+    }
+
+    .btn-save-params {
+        background: linear-gradient(135deg, #00c853 0%, #00a344 100%);
+        color: white;
+        padding: 12px 32px;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        box-shadow: 0 4px 12px rgba(0, 200, 83, 0.3);
+        margin-top: 20px;
+    }
+
+    .btn-save-params:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0, 200, 83, 0.4);
+    }
+
+    .version-info {
+        margin-top: 24px;
+        padding: 12px 16px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid #e9ecef;
+    }
+
+    .version-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: #888;
+        flex-shrink: 0;
+    }
+
+    .version-value {
+        font-size: 13px;
+        color: #555;
+        font-family: 'Courier New', Courier, monospace;
+    }
+</style>
+</head>
+<body>
+<div class="settings-container">
+    <div class="settings-header">
+        <button class="back-btn" onclick="goBack()">←</button>
+        <div class="settings-title">设置</div>
+    </div>
+
+    <div class="settings-content">
+        <!-- Tab 切换按钮 -->
+        <div class="settings-tabs">
+            <button class="settings-tab active" onclick="switchTab('model')">模型设置</button>
+            <button class="settings-tab" onclick="switchTab('params')">参数设置</button>
+        </div>
+
+        <!-- 板块1: 模型设置 -->
+        <div class="tab-panel active" id="tab-model">
+            <div class="settings-section">
+                <div class="section-title">模型列表</div>
+            
+            <!-- 新增模型区域 -->
+            <div class="add-model-section">
+                <div class="add-model-title">新增模型</div>
+                <input type="text" 
+                       id="new-model-name" 
+                       class="model-name-input" 
+                       placeholder="请输入模型名称"/>
+                <textarea id="new-model-description" 
+                          class="model-description-textarea" 
+                          placeholder="请输入模型描述（支持换行）"></textarea>
+                <textarea id="new-model-rules" 
+                          class="model-description-textarea" 
+                          placeholder="请输入规则内容（支持换行，可选）"></textarea>
+                <button class="btn-add" onclick="addModel()">新增</button>
+            </div>
+            
+            <div class="model-list" th:if="${allModel != null and !allModel.isEmpty()}">
+                <div class="model-item" th:each="model : ${allModel}" th:id="'model-' + ${model.id}">
+                    <div class="model-info">
+                        <div class="model-name" th:text="${model.name}">模型名称</div>
+                        <div class="model-description" th:utext="${#strings.replace(model.description, '\n', '<br>')}", th:id="'desc-' + ${model.id}" style="white-space: pre-line;">模型描述</div>
+                        <textarea class="model-description-input" 
+                               th:id="'desc-input-' + ${model.id}" 
+                               th:text="${model.description}" 
+                               style="display: none;"></textarea>
+                        <div class="model-rules-label" style="margin-top: 8px; font-size: 12px; color: #888; font-weight: 600;">规则</div>
+                        <div class="model-rules" th:utext="${#strings.replace(model.rules, '\n', '<br>')}", th:id="'rules-' + ${model.id}" style="white-space: pre-line; font-size: 13px; color: #666;" th:if="${model.rules != null and model.rules != ''}">规则内容</div>
+                        <div class="model-rules" th:id="'rules-' + ${model.id}" style="white-space: pre-line; font-size: 13px; color: #999; font-style: italic;" th:if="${model.rules == null or model.rules == ''}">暂无规则</div>
+                        <textarea class="model-rules-input" 
+                               th:id="'rules-input-' + ${model.id}" 
+                               th:text="${model.rules}" 
+                               style="display: none;" 
+                               placeholder="请输入规则内容（支持换行）"></textarea>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <div class="model-id" th:text="'ID: ' + ${model.id}">ID: 1</div>
+                        <div class="model-actions" th:id="'actions-' + ${model.id}">
+                            <button class="btn-edit" th:onclick="'editModel(' + ${model.id} + ')'">修改</button>
+                            <button class="btn-delete" th:onclick="'deleteModel(' + ${model.id} + ')'">删除</button>
+                        </div>
+                        <div class="model-actions" th:id="'edit-actions-' + ${model.id}" style="display: none;">
+                            <button class="btn-save" th:onclick="'saveModel(' + ${model.id} + ')'">保存</button>
+                            <button class="btn-cancel" th:onclick="'cancelEdit(' + ${model.id} + ')'">取消</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+                <!-- 空状态 -->
+                <div class="empty-state" th:if="${allModel == null or allModel.isEmpty()}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                    </svg>
+                    <div>暂无模型数据</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 板块2: 参数设置 -->
+        <div class="tab-panel" id="tab-params">
+            <div class="settings-section">
+                <div class="section-title">对话参数</div>
+
+                <div class="param-item">
+                    <div class="param-label">对话模型 (ANCHAT_MODEL)</div>
+                    <div class="param-desc">发送 AnChat API 请求时使用的模型名称。保存后立即生效。</div>
+                    <select class="param-input" id="input-deep-seek-model">
+                        <option value="deepseek-v4-pro" th:selected="${currentModel == 'deepseek-v4-pro'}">deepseek-v4-pro</option>
+                        <option value="deepseek-v4-flash" th:selected="${currentModel == 'deepseek-v4-flash'}">deepseek-v4-flash</option>
+                        <option value="deepseek-v4-flash-chat" th:selected="${currentModel == 'deepseek-v4-flash-chat'}">deepseek-v4-flash-chat</option>
+                    </select>
+                </div>
+
+                <div class="param-item">
+                    <div class="param-label">切片最大字符数 (MAX_SLICE_CHARS)</div>
+                    <div class="param-desc">单个对话切片的最大字符数，超过将自动拆分并生成摘要。默认值: 20000</div>
+                    <input type="number" class="param-input" id="input-max-slice-chars" th:value="${maxSliceChars}" min="1000" max="100000">
+                </div>
+
+                <div class="param-item">
+                    <div class="param-label">上下文最小对话轮次 (MIN_CONTEXT_TURNS)</div>
+                    <div class="param-desc">发送请求时，上下文不足此轮次将自动从历史切片补充。默认值: 10</div>
+                    <input type="number" class="param-input" id="input-min-context-turns" th:value="${minContextTurns}" min="1" max="50">
+                </div>
+                <div class="param-item">
+                    <div class="param-label">隐藏域</div>
+                    <textarea class="param-input" id="input-hidden-prompt" rows="5" th:text="${hiddenPrompt}"></textarea>
+                </div>
+
+                <button class="btn-save-params" onclick="saveParams()">保存参数</button>
+
+                <div class="section-title" style="margin-top: 32px;">IP 白名单</div>
+
+                <div class="param-item">
+                    <div class="param-label">允许访问的 IP (WHITE_LIST_IP)</div>
+                    <div class="param-desc">多个 IP 用英文逗号分隔，支持 CIDR 段格式（如 192.168.1.0/24）。留空将拒绝所有访问。</div>
+                    <input type="text" class="param-input" id="input-white-list-ip" th:value="${whiteListIp}" placeholder="127.0.0.1,192.168.1.0/24">
+                </div>
+
+                <button class="btn-save-params" onclick="saveWhiteListIp()">保存白名单</button>
+
+                <div class="version-info">
+                    <div class="version-label">版本时间</div>
+                    <div class="version-value" th:text="${startupTime}"></div>
+                </div>
+
+                <button class="btn-save-params" style="margin-top: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);" onclick="goToLog()">查看日志</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 返回上一页
+    function goBack() {
+        window.location.href = basePath + '/anChat/init.html';
+    }
+
+    // 跳转日志页
+    function goToLog() {
+        window.location.href = basePath + '/anChatLog/index.html';
+    }
+
+    // 编辑模型
+    function editModel(modelId) {
+        // 隐藏描述文本、规则文本和编辑/删除按钮
+        document.getElementById('desc-' + modelId).style.display = 'none';
+        document.getElementById('rules-' + modelId).style.display = 'none';
+        document.getElementById('actions-' + modelId).style.display = 'none';
+        
+        // 显示输入框和保存/取消按钮
+        document.getElementById('desc-input-' + modelId).style.display = 'block';
+        document.getElementById('rules-input-' + modelId).style.display = 'block';
+        document.getElementById('edit-actions-' + modelId).style.display = 'flex';
+        
+        // 聚焦到描述输入框
+        document.getElementById('desc-input-' + modelId).focus();
+    }
+
+    // 取消编辑
+    function cancelEdit(modelId) {
+        // 显示描述文本、规则文本和编辑/删除按钮
+        document.getElementById('desc-' + modelId).style.display = 'block';
+        document.getElementById('rules-' + modelId).style.display = 'block';
+        document.getElementById('actions-' + modelId).style.display = 'flex';
+        
+        // 隐藏输入框和保存/取消按钮
+        document.getElementById('desc-input-' + modelId).style.display = 'none';
+        document.getElementById('rules-input-' + modelId).style.display = 'none';
+        document.getElementById('edit-actions-' + modelId).style.display = 'none';
+    }
+
+    // 保存模型
+    function saveModel(modelId) {
+        const newDescription = document.getElementById('desc-input-' + modelId).value;
+        const newRules = document.getElementById('rules-input-' + modelId).value;
+        
+        // 发送 AJAX 请求更新描述和规则
+        const formData = new FormData();
+        formData.append('modelId', modelId);
+        formData.append('description', newDescription);
+        formData.append('rules', newRules);
+        
+        fetch(basePath + '/anChat/updateModelDescription', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // 更新页面上的描述文本，保留换行格式
+                document.getElementById('desc-' + modelId).innerHTML = newDescription.replace(/\n/g, '<br>');
+                
+                // 更新规则文本
+                const rulesDisplay = document.getElementById('rules-' + modelId);
+                if (newRules && newRules.trim()) {
+                    rulesDisplay.innerHTML = newRules.replace(/\n/g, '<br>');
+                    rulesDisplay.style.fontStyle = 'normal';
+                    rulesDisplay.style.color = '#666';
+                } else {
+                    rulesDisplay.innerHTML = '暂无规则';
+                    rulesDisplay.style.fontStyle = 'italic';
+                    rulesDisplay.style.color = '#999';
+                }
+                
+                // 切换回显示模式
+                cancelEdit(modelId);
+                
+                // 显示成功提示
+                alert('保存成功！');
+            } else {
+                alert('保存失败：' + (data.message || '未知错误'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('保存失败，请重试');
+        });
+    }
+
+    // 删除模型
+    function deleteModel(modelId) {
+        if (confirm('确定要删除这个模型吗？此操作不可恢复。')) {
+            const formData = new FormData();
+            formData.append('modelId', modelId);
+            
+            fetch(basePath + '/anChat/deleteModel', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 从页面上移除该模型
+                    document.getElementById('model-' + modelId).remove();
+                    alert('删除成功！');
+                    
+                    // 检查是否还有模型，如果没有则显示空状态
+                    const modelList = document.querySelector('.model-list');
+                    if (modelList && modelList.children.length === 0) {
+                        location.reload(); // 刷新页面显示空状态
+                    }
+                } else {
+                    alert('删除失败：' + (data.message || '未知错误'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('删除失败，请重试');
+            });
+        }
+    }
+
+    // 新增模型
+    function addModel() {
+        const modelName = document.getElementById('new-model-name').value.trim();
+        const modelDescription = document.getElementById('new-model-description').value.trim();
+        const modelRules = document.getElementById('new-model-rules').value.trim();
+        
+        if (!modelName) {
+            alert('请输入模型名称');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('name', modelName);
+        formData.append('description', modelDescription);
+        formData.append('rules', modelRules);
+        
+        fetch(basePath + '/anChat/addModel', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('新增成功！');
+                // 清空输入框
+                document.getElementById('new-model-name').value = '';
+                document.getElementById('new-model-description').value = '';
+                document.getElementById('new-model-rules').value = '';
+                // 刷新页面以显示新添加的模型
+                location.reload();
+            } else {
+                alert('新增失败：' + (data.message || '未知错误'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('新增失败，请重试');
+        });
+    }
+
+    // ==================== Tab 切换 ====================
+    function switchTab(tab) {
+        document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+
+        if (tab === 'model') {
+            document.querySelectorAll('.settings-tab')[0].classList.add('active');
+            document.getElementById('tab-model').classList.add('active');
+        } else {
+            document.querySelectorAll('.settings-tab')[1].classList.add('active');
+            document.getElementById('tab-params').classList.add('active');
+        }
+    }
+
+    // ==================== 保存参数 ====================
+    function saveParams() {
+        var anChatModel = document.getElementById('input-deep-seek-model').value;
+        var maxSliceChars = document.getElementById('input-max-slice-chars').value;
+        var minContextTurns = document.getElementById('input-min-context-turns').value;
+        var hiddenPrompt = document.getElementById('input-hidden-prompt').value;
+
+        if (!maxSliceChars || !minContextTurns) {
+            alert('参数不能为空');
+            return;
+        }
+
+        var options = {
+            'ANCHAT_MODEL': anChatModel,
+            'MAX_SLICE_CHARS': maxSliceChars,
+            'MIN_CONTEXT_TURNS': minContextTurns,
+            'HIDDEN_PROMPT': hiddenPrompt
+        };
+
+        fetch(basePath + '/anChat/saveOptions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(options)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.success) { alert('保存失败'); return; }
+            return fetch(basePath + '/anChat/reloadConstants', { method: 'POST' });
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d2) {
+            if (d2 && d2.success) {
+                alert('保存成功，参数已生效！');
+            } else if (d2) {
+                alert('重新加载失败');
+            }
+        })
+        .catch(function(e) {
+            console.error('Error:', e);
+            alert('保存失败，请重试');
+        });
+    }
+
+    // ==================== 保存 IP 白名单 ====================
+    function saveWhiteListIp() {
+        var whiteListIp = document.getElementById('input-white-list-ip').value.trim();
+
+        if (!whiteListIp) {
+            if (!confirm('IP 白名单为空将拒绝所有访问，确定继续保存？')) {
+                return;
+            }
+        }
+
+        var form = new FormData();
+        form.append('key', 'WHITE_LIST_IP');
+        form.append('value', whiteListIp);
+
+        fetch(basePath + '/anChat/saveOption', { method: 'POST', body: form })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.success) { alert('保存白名单失败'); return; }
+
+            return fetch(basePath + '/anChat/reloadConstants', { method: 'POST' });
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d2) {
+            if (d2 && d2.success) {
+                alert('IP 白名单已保存并生效！');
+            }
+        })
+        .catch(function(e) {
+            console.error('Error:', e);
+            alert('保存失败，请重试');
+        });
+    }
+</script>
+
+</body>
+</html>

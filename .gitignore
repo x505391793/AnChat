@@ -1,0 +1,37 @@
+# ============================================================
+# AnChat .gitignore
+# 原则：只提交源码（Java / 资源 / pom），不提交任何脚本与构建产物
+# ============================================================
+
+# ===== 脚本：一律不提交（含 SQL 建表/迁移脚本、Shell/Batch/Python 等） =====
+*.sh
+*.bat
+*.cmd
+*.ps1
+*.py
+*.sql
+
+# ===== Maven 构建产物 =====
+target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# ===== IDE / 编辑器 =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.settings/
+.project
+.classpath
+.vscode/
+
+# ===== 日志 =====
+*.log
+
+# ===== 操作系统文件 =====
+.DS_Store
+Thumbs.db
