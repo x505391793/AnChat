@@ -4,7 +4,6 @@ import com.anchat.common.AnChatConstants;
 import com.anchat.pojo.Result;
 import com.anchat.pojo.anChat.AnChatContent;
 import com.anchat.pojo.anChat.AnChatModel;
-import com.anchat.service.ConfigOptionService;
 import com.anchat.service.AnChatService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
@@ -21,9 +20,6 @@ public class AnChatController {
 
     @Autowired
     AnChatService anChatService;
-
-    @Autowired
-    ConfigOptionService configOptionService;
 
     @GetMapping("/init.html")
     public String init(Model model) {
@@ -42,7 +38,6 @@ public class AnChatController {
         model.addAttribute("minContextTurns", AnChatConstants.minContextTurns);
         model.addAttribute("hiddenPrompt", AnChatConstants.HIDDEN_PROMPT);
         model.addAttribute("currentModel", AnChatConstants.anChatModel);
-        model.addAttribute("whiteListIp", configOptionService.getValue("WHITE_LIST_IP", ""));
         model.addAttribute("startupTime", AnChatConstants.startupTime);
         return "anchat/settings";
     }
