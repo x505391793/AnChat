@@ -29,7 +29,10 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AnChatServiceImpl implements AnChatService {
 
+    // DeepSeek 公开接口地址（非机密，保留为常量）
     private static final String API_URL = "https://api.deepseek.com/chat/completions";
+    // API Key 不再硬编码进代码/仓库：从环境变量 ANCHAT_API_KEY 读取。
+    // 后续前端输入框接入后，可改为由每次请求的前端传入（改造 sendMessage 链路）。
     private static final String API_KEY = System.getenv("ANCHAT_API_KEY");
 
     @Autowired
