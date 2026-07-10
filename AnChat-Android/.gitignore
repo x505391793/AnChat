@@ -1,0 +1,24 @@
+# Built application files
+*.apk
+*.aar
+*.aab
+*.jar
+*.war
+
+# Local configuration (SDK path is machine-specific)
+/local.properties
+
+# Gradle
+.gradle/
+build/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Google Services (if added later)
+google-services.json
