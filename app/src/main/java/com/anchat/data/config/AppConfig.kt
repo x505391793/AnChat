@@ -17,4 +17,9 @@ data class AppConfig(
     val defaultUserAvatar: String = "",
     /** 用户主身份描述（角色卡未设置时使用） */
     val defaultUserDescription: String = "",
+    /**
+     * 外观模式：system（跟随系统）/ light（浅色）/ dark（深色）。
+     * 默认跟随系统。
+     */
+    val themeMode: String = "system",
 )

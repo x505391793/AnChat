@@ -54,6 +54,10 @@ class ChatViewModel(
     private val _defaultModel = MutableStateFlow(DeepSeekConstants.MODELS.first().id)
     val defaultModel: StateFlow<String> = _defaultModel.asStateFlow()
 
+    /** 是否展示思考（推理）过程，跟随角色卡设置，普通对话默认开启 */
+    private val _thinkingEnabled = MutableStateFlow(true)
+    val thinkingEnabled: StateFlow<Boolean> = _thinkingEnabled.asStateFlow()
+
     /** 当前选中的角色卡，null = 无角色（用主身份） */
     private var currentCharacter: CharacterEntity? = null
 
@@ -71,6 +75,13 @@ class ChatViewModel(
                     ChatMessage(it.role, it.content, it.reasoningContent)
                 }
                 _messages.value = stored
+                // 角色卡对话：按 characterId 恢复角色名与 system 设定
+                val charId = localRepo.getConversation(convId)?.characterId ?: -1L
+                if (charId >= 0) {
+                    val character = localRepo.getCharacter(charId)
+                    setCharacter(character)
+                    _title.value = character?.name ?: "AnChat"
+                }
             }
         }
         // 角色卡：加载并设置（角色卡优先于配置文件主身份）
@@ -85,7 +96,8 @@ class ChatViewModel(
                     if (!greeting.isNullOrBlank() && convId < 0) {
                         val newId = localRepo.createConversation(
                             title = character.name,
-                            modelId = null
+                            modelId = null,
+                            characterId = character.id
                         )
                         conversationId = newId
                         localRepo.insertMessage(
@@ -106,6 +118,7 @@ class ChatViewModel(
 
     fun setCharacter(character: CharacterEntity?) {
         currentCharacter = character
+        _thinkingEnabled.value = character?.thinkingEnabled ?: true
     }
 
     /**
@@ -162,15 +175,17 @@ class ChatViewModel(
         }
 
         // 3. 开始请求
-        val model = _defaultModel.value
+        val model = currentCharacter?.modelId ?: _defaultModel.value
         _isLoading.value = true
         _error.value = null
 
         viewModelScope.launch {
             try {
                 // DB: 创建/获取对话
-                val convId = conversationId ?: localRepo.createConversation(title = text.take(20))
-                    .also { conversationId = it }
+                val convId = conversationId ?: localRepo.createConversation(
+                    title = text.take(20),
+                    characterId = currentCharacter?.id ?: -1L
+                ).also { conversationId = it }
 
                 // DB: 保存用户消息
                 try {

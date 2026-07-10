@@ -1,5 +1,6 @@
 package com.anchat.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -31,6 +32,12 @@ data class CharacterEntity(
 
     /** 用户在此角色对话中的身份描述 */
     val userDescription: String? = null,
+
+    /** 该角色对话使用的模型（null = 跟随全局默认） */
+    @ColumnInfo(name = "model_id") val modelId: String? = null,
+
+    /** 是否开启思考模式（控制推理过程展示） */
+    @ColumnInfo(name = "thinking_enabled") val thinkingEnabled: Boolean = false,
 
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()

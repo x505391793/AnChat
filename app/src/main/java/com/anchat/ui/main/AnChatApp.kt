@@ -1,5 +1,6 @@
 package com.anchat.ui.main
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChatBubble
@@ -13,8 +14,11 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.anchat.ui.theme.AnChatTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -38,10 +42,31 @@ import com.anchat.ui.settings.SettingsScreen
 private val WeChatGreen = Color(0xFF07C160)
 
 sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
-    data object WeChat : Screen("wechat", "AnChat", Icons.Filled.ChatBubble)
+    data object WeChat : Screen("wechat", "微信", Icons.Filled.ChatBubble)
     data object Contacts : Screen("contacts", "通讯录", Icons.Filled.Contacts)
     data object Discover : Screen("discover", "发现", Icons.Filled.Explore)
     data object Me : Screen("me", "我", Icons.Filled.Person)
+}
+
+/**
+ * Host that resolves the active theme from the user's setting and provides it
+ * to the whole tree (via [LocalIsDark]) before rendering [AnChatApp].
+ */
+@Composable
+fun AnChatAppHost() {
+    val app = LocalApp.current
+    val themeMode by app.configManager.themeModeFlow.collectAsStateWithLifecycle()
+    val systemDark = isSystemInDarkTheme()
+    val darkTheme = when (themeMode) {
+        "dark" -> true
+        "light" -> false
+        else -> systemDark
+    }
+    CompositionLocalProvider(LocalIsDark provides darkTheme) {
+        AnChatTheme(darkTheme = darkTheme) {
+            AnChatApp()
+        }
+    }
 }
 
 @Composable

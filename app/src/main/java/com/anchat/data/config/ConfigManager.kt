@@ -5,6 +5,9 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -34,6 +37,17 @@ class ConfigManager(private val context: Context) {
     private val defaultConfigFile: File = File(context.filesDir, CONFIG_FILENAME)
 
     val defaultConfigPath: String = defaultConfigFile.absolutePath
+
+    /** 外观模式（system / light / dark），响应式供 UI 订阅。 */
+    private val _themeMode = MutableStateFlow(load().themeMode)
+    val themeModeFlow: StateFlow<String> = _themeMode.asStateFlow()
+
+    fun getThemeMode(): String = _themeMode.value
+
+    fun setThemeMode(mode: String) {
+        _themeMode.value = mode
+        save(load().copy(themeMode = mode))
+    }
 
     /** SAF tree URI if the user picked a custom directory. Null = File mode. */
     val safTreeUri: Uri?

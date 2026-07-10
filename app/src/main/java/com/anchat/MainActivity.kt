@@ -5,8 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import com.anchat.ui.main.LocalApp
-import com.anchat.ui.main.AnChatApp
-import com.anchat.ui.theme.AnChatTheme
+import com.anchat.ui.main.AnChatAppHost
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -14,9 +13,7 @@ class MainActivity : ComponentActivity() {
         val app = application as AnChatApplication
         setContent {
             CompositionLocalProvider(LocalApp provides app) {
-                AnChatTheme {
-                    AnChatApp()
-                }
+                AnChatAppHost()
             }
         }
     }

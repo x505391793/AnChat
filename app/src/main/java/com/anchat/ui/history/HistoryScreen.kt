@@ -12,16 +12,27 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -39,6 +50,8 @@ import com.anchat.data.local.entity.Conversation
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.absoluteValue
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,6 +93,7 @@ fun HistoryScreen(navController: NavHostController) {
                     ConversationItem(
                         conversation = conv,
                         onClick = { navController.navigate("chat/${conv.id}") },
+                        onPin = { viewModel.togglePin(conv.id, !conv.isPinned) },
                         onDelete = { viewModel.delete(conv.id) }
                     )
                 }
@@ -92,27 +106,104 @@ fun HistoryScreen(navController: NavHostController) {
 private fun ConversationItem(
     conversation: Conversation,
     onClick: () -> Unit,
+    onPin: () -> Unit,
     onDelete: () -> Unit
+) {
+    val revealWidth = 176.dp
+    val density = LocalDensity.current
+    val revealPx = with(density) { revealWidth.toPx() }
+    val offset = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val pinned = conversation.isPinned
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        // 背景操作区（左滑后从右侧露出）
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(
+                onClick = {
+                    onPin()
+                    scope.launch { offset.animateTo(0f) }
+                },
+                modifier = Modifier.width(80.dp)
+            ) {
+                Text(
+                    if (pinned) "取消置顶" else "置顶",
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            TextButton(
+                onClick = {
+                    onDelete()
+                    scope.launch { offset.animateTo(0f) }
+                },
+                modifier = Modifier.width(80.dp)
+            ) {
+                Text("删除", color = Color(0xFFE54D42))
+            }
+        }
+
+        // 前景内容（可左滑）
+        Surface(
+            color = MaterialTheme.colorScheme.background,
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offset.value.toInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            scope.launch {
+                                val target =
+                                    if (offset.value < -revealPx / 2f) -revealPx else 0f
+                                offset.animateTo(target)
+                            }
+                        }
+                    ) { _, dragAmount ->
+                        val newOffset =
+                            (offset.value + dragAmount).coerceIn(-revealPx, 0f)
+                        scope.launch { offset.snapTo(newOffset) }
+                    }
+                }
+        ) {
+            ConversationRowContent(
+                conversation = conversation,
+                onClick = onClick
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConversationRowContent(
+    conversation: Conversation,
+    onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 头像（首字母色块）
-        val avatarColor = avatarColors[conversation.id.toInt() and 0xFFFF]
+        val avatarColor = avatarColors[androidx.core.math.MathUtils.clamp(conversation.id.toInt().absoluteValue, 0, avatarColors.size - 1)]
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(8.dp))
                 .background(avatarColor),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = conversation.title.firstOrNull()?.toString() ?: "?",
-                color = androidx.compose.ui.graphics.Color.White,
+                color = Color.White,
                 style = MaterialTheme.typography.titleMedium
             )
         }
@@ -122,12 +213,23 @@ private fun ConversationItem(
         Column(
             modifier = Modifier.weight(1f)
         ) {
-            Text(
-                conversation.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (conversation.isPinned) {
+                    Icon(
+                        Icons.Filled.PushPin,
+                        contentDescription = "已置顶",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(
+                    conversation.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             if (conversation.preview.isNotBlank()) {
                 Text(
                     conversation.preview,
@@ -146,14 +248,6 @@ private fun ConversationItem(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-
-        IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Filled.Delete,
-                contentDescription = "删除",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
     }
 }
 

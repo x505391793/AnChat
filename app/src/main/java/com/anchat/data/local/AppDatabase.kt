@@ -15,7 +15,7 @@ import com.anchat.data.local.entity.ModelEntity
 
 @Database(
     entities = [Conversation::class, Message::class, ModelEntity::class, CharacterEntity::class],
-    version = 3,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

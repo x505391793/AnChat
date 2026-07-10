@@ -2,7 +2,6 @@ package com.anchat.ui.contacts
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,7 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -34,6 +33,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.ui.main.LocalApp
+import kotlin.math.absoluteValue
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,35 +45,36 @@ fun ContactsScreen(navController: NavHostController) {
     Scaffold(
         topBar = { CenterAlignedTopAppBar(title = { Text("通讯录") }) }
     ) { padding ->
-        if (characters.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("暂无角色卡", style = MaterialTheme.typography.bodyLarge)
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            ) {
-                items(characters, key = { it.id }) { char ->
-                    CharacterItem(
-                        character = char,
-                        onClick = {
-                            // 用该角色进入新对话
-                            navController.navigate("chat/-1?characterId=${char.id}") {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    inclusive = false
-                                }
-                                launchSingleTop = true
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            items(characters, key = { it.id }) { char ->
+                CharacterItem(
+                    character = char,
+                    onClick = {
+                        // 用该角色进入新对话
+                        navController.navigate("chat/-1?characterId=${char.id}") {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                inclusive = false
                             }
+                            launchSingleTop = true
                         }
-                    )
+                    }
+                )
+            }
+
+            if (characters.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("暂无角色卡", style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
             }
         }
@@ -92,11 +93,11 @@ private fun CharacterItem(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val avatarColor = characterColors[character.id.toInt() and 0xFFFF]
+        val avatarColor = characterColors[androidx.core.math.MathUtils.clamp(character.id.toInt().absoluteValue, 0, characterColors.size - 1)]
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(8.dp))
                 .background(avatarColor),
             contentAlignment = Alignment.Center
         ) {

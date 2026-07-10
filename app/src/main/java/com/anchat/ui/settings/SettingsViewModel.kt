@@ -28,6 +28,15 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    // ─── 外观（深色模式） ───────────────────────
+    private val _themeMode = MutableStateFlow(configManager.getThemeMode())
+    val themeMode: StateFlow<String> = _themeMode.asStateFlow()
+
+    fun setThemeMode(mode: String) {
+        configManager.setThemeMode(mode)
+        _themeMode.value = mode
+    }
+
     // ─── Config path ───────────────────────────────────
 
     private val _configDisplayPath = MutableStateFlow(repo.getConfigDisplayPath())

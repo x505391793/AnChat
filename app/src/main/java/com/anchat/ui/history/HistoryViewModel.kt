@@ -30,4 +30,8 @@ class HistoryViewModel(app: Application) : AndroidViewModel(app) {
     fun delete(id: Long) {
         viewModelScope.launch { repo.deleteConversation(id) }
     }
+
+    fun togglePin(id: Long, pinned: Boolean) {
+        viewModelScope.launch { repo.setPinned(id, pinned) }
+    }
 }

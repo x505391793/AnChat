@@ -12,10 +12,10 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ConversationDao {
 
-    @Query("SELECT * FROM conversations ORDER BY updated_at DESC")
+    @Query("SELECT * FROM conversations ORDER BY is_pinned DESC, updated_at DESC")
     fun observeAll(): Flow<List<Conversation>>
 
-    @Query("SELECT * FROM conversations ORDER BY updated_at DESC")
+    @Query("SELECT * FROM conversations ORDER BY is_pinned DESC, updated_at DESC")
     suspend fun getAll(): List<Conversation>
 
     @Query("SELECT * FROM conversations WHERE id = :id")
@@ -35,6 +35,9 @@ interface ConversationDao {
 
     @Query("UPDATE conversations SET is_star = :isStar WHERE id = :id")
     suspend fun setStar(id: Long, isStar: Boolean)
+
+    @Query("UPDATE conversations SET is_pinned = :pinned, updated_at = :updatedAt WHERE id = :id")
+    suspend fun setPinned(id: Long, pinned: Boolean, updatedAt: Long = System.currentTimeMillis())
 
     @Query("UPDATE conversations SET updated_at = :updatedAt WHERE id = :id")
     suspend fun touch(id: Long, updatedAt: Long = System.currentTimeMillis())

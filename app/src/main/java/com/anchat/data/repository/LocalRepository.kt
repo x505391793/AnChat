@@ -23,13 +23,19 @@ class LocalRepository(
 
     suspend fun getConversation(id: Long): Conversation? = conversationDao.getById(id)
 
-    suspend fun createConversation(title: String = "新对话", modelId: String? = null): Long =
-        conversationDao.insert(Conversation(title = title, modelId = modelId))
+    suspend fun createConversation(
+        title: String = "新对话",
+        modelId: String? = null,
+        characterId: Long = -1L
+    ): Long = conversationDao.insert(
+        Conversation(title = title, modelId = modelId, characterId = characterId)
+    )
 
     suspend fun insertMessage(message: Message): Long = messageDao.insert(message)
     suspend fun renameConversation(id: Long, title: String) = conversationDao.rename(id, title)
     suspend fun updatePreview(id: Long, preview: String) = conversationDao.updatePreview(id, preview)
     suspend fun setStar(id: Long, isStar: Boolean) = conversationDao.setStar(id, isStar)
+    suspend fun setPinned(id: Long, pinned: Boolean) = conversationDao.setPinned(id, pinned)
     suspend fun deleteConversation(id: Long) {
         messageDao.deleteByConversation(id)
         conversationDao.deleteById(id)
