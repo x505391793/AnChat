@@ -1,5 +1,8 @@
 package com.anchat.ui.settings
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,7 +26,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -35,9 +37,20 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun SettingsScreen() {
     val viewModel: SettingsViewModel = viewModel()
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
-    val models by viewModel.models.collectAsStateWithLifecycle()
+    val models by viewModel.models.collectAsStateWithLifecycle(initialValue = emptyList())
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val configDisplayPath by viewModel.configDisplayPath.collectAsStateWithLifecycle()
+
+    // Directory picker launcher
+    val directoryPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+        onResult = { uri: Uri? ->
+            if (uri != null) {
+                viewModel.setSafUri(uri)
+            }
+        }
+    )
 
     LaunchedEffect(message) {
         if (message != null) {
@@ -59,11 +72,22 @@ fun SettingsScreen() {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("DeepSeek API Key", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Key 仅保存在本机加密存储中，不会上传到除 DeepSeek 以外的任何地方。",
-                style = MaterialTheme.typography.bodySmall
+            // ─── 配置文件路径 ────────────────────────────────
+            Text("配置文件路径", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = configDisplayPath,
+                onValueChange = { /* read-only display, changes via picker */ },
+                label = { Text("当前路径") },
+                readOnly = true,
+                modifier = Modifier.fillMaxWidth()
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { directoryPicker.launch(null) }) { Text("选择目录") }
+                Button(onClick = viewModel::resetConfigPath) { Text("恢复默认") }
+            }
+
+            // ─── API Key ────────────────────────────────────
+            Text("DeepSeek API Key", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = viewModel::onKeyChange,
@@ -80,6 +104,7 @@ fun SettingsScreen() {
                 ) { Text(if (isRefreshing) "刷新中…" else "从 API 拉取模型") }
             }
 
+            // ─── 默认模型 ───────────────────────────────────
             Text("默认模型", style = MaterialTheme.typography.titleMedium)
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),

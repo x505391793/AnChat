@@ -13,7 +13,7 @@ import com.anchat.data.local.entity.ModelEntity
 
 @Database(
     entities = [Conversation::class, Message::class, ModelEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,7 +34,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     DB_NAME
-                ).build().also { INSTANCE = it }
+                )
+                .fallbackToDestructiveMigration()  // 开发阶段，表结构变动时重建
+                .build().also { INSTANCE = it }
             }
         }
     }

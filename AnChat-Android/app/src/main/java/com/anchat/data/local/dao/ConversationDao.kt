@@ -30,6 +30,12 @@ interface ConversationDao {
     @Query("UPDATE conversations SET title = :title, updated_at = :updatedAt WHERE id = :id")
     suspend fun rename(id: Long, title: String, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE conversations SET preview = :preview, updated_at = :updatedAt WHERE id = :id")
+    suspend fun updatePreview(id: Long, preview: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE conversations SET is_star = :isStar WHERE id = :id")
+    suspend fun setStar(id: Long, isStar: Boolean)
+
     @Query("UPDATE conversations SET updated_at = :updatedAt WHERE id = :id")
     suspend fun touch(id: Long, updatedAt: Long = System.currentTimeMillis())
 

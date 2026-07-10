@@ -13,5 +13,6 @@ data class ModelEntity(
     @PrimaryKey @ColumnInfo(name = "id") val id: String,
     @ColumnInfo(name = "name") val name: String,
     @ColumnInfo(name = "description") val description: String = "",
+    @ColumnInfo(name = "system_prompt") val systemPrompt: String? = null,
     @ColumnInfo(name = "is_default") val isDefault: Boolean = false
 )

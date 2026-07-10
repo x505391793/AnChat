@@ -1,6 +1,7 @@
 package com.anchat.ui.settings
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.anchat.AnChatApplication
@@ -25,6 +26,27 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    // ─── Config path ───────────────────────────────────
+
+    private val _configDisplayPath = MutableStateFlow(repo.getConfigDisplayPath())
+    val configDisplayPath: StateFlow<String> = _configDisplayPath.asStateFlow()
+
+    val isSafMode: Boolean = repo.isSafMode()
+
+    fun setSafUri(uri: Uri) {
+        repo.setSafTreeUri(uri)
+        _configDisplayPath.value = repo.getConfigDisplayPath()
+        _message.value = "配置路径已更改"
+    }
+
+    fun resetConfigPath() {
+        repo.resetToDefault()
+        _configDisplayPath.value = repo.getConfigDisplayPath()
+        _message.value = "已恢复默认路径"
+    }
+
+    // ─── API Key ───────────────────────────────────────
+
     fun onKeyChange(text: String) {
         _apiKey.value = text
     }
@@ -36,7 +58,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             _message.value = "已清除 API Key"
         } else {
             repo.saveApiKey(key)
-            _message.value = "API Key 已加密保存"
+            _message.value = "API Key 已保存"
         }
     }
 

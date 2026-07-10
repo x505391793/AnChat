@@ -1,6 +1,7 @@
 package com.anchat
 
 import android.app.Application
+import com.anchat.data.config.ConfigManager
 import com.anchat.data.local.AppDatabase
 import com.anchat.data.local.entity.ModelEntity
 import com.anchat.data.remote.DeepSeekApi
@@ -8,21 +9,21 @@ import com.anchat.data.remote.DeepSeekConstants
 import com.anchat.data.repository.ChatRepository
 import com.anchat.data.repository.LocalRepository
 import com.anchat.data.repository.SettingsRepository
-import com.anchat.data.repository.ApiKeyStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
  * Application-level container that wires up the local database, the DeepSeek
- * API client and the repositories. Screens reach it through [LocalApp].
+ * API client, the config manager and the repositories. Screens reach it
+ * through [LocalApp].
  */
 class AnChatApplication : Application() {
 
     val database: AppDatabase by lazy { AppDatabase.get(this) }
 
     private val deepSeekApi: DeepSeekApi by lazy { DeepSeekApi() }
-    private val apiKeyStore: ApiKeyStore by lazy { ApiKeyStore(this) }
+    val configManager: ConfigManager by lazy { ConfigManager(this) }
 
     val chatRepository: ChatRepository by lazy {
         ChatRepository(deepSeekApi, database.conversationDao(), database.messageDao())
@@ -31,7 +32,7 @@ class AnChatApplication : Application() {
         LocalRepository(database.conversationDao(), database.messageDao())
     }
     val settingsRepository: SettingsRepository by lazy {
-        SettingsRepository(deepSeekApi, apiKeyStore, database.modelDao())
+        SettingsRepository(deepSeekApi, configManager, database.modelDao())
     }
 
     override fun onCreate() {
