@@ -5,6 +5,11 @@
 ## 已实现
 
 - 2026-07-10：基础对话功能移植完成（Spring Boot → Android 原生）
+- 2026-07-10：微信式 UI 重构——底部 4 tab（AnChat / 通讯录 / 发现 / 我）、角色卡系统（创建 / 对话 / 开场白）、设置页微信白底绿辅风、各页顶栏标题居中
+
+## 进行中
+
+- UI 布局细节优化（顶部栏居中已完成，整体布局打磨进行中）
 
 ## 待实现
 
@@ -69,6 +74,21 @@
 | systemPrompt | String? | 配套提示词 |
 | isDefault | Boolean | 默认模型 |
 
+**character**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | Long PK 自增 | |
+| name | String | 角色名 |
+| avatar | String? | 头像 |
+| description | String? | 描述 |
+| systemPrompt | String? | 系统提示词 |
+| greeting | String? | 开场白 |
+| userAvatar | String? | 用户头像 |
+| userName | String? | 用户身份名 |
+| userDescription | String? | 用户身份描述 |
+| createdAt / updatedAt | Long | 时间戳 |
+
 ## 项目结构
 
 ```
@@ -82,8 +102,11 @@ app/src/main/java/com/anchat/
 │   └── repository/      # Chat / Local / Settings
 ├── ui/
 │   ├── chat/            # ChatScreen + ChatViewModel
+│   ├── contacts/        # ContactsScreen + CharacterEditScreen
+│   ├── discover/        # DiscoverScreen（待开发）
 │   ├── history/         # HistoryScreen + HistoryViewModel
 │   ├── main/            # AnChatApp + LocalApp
+│   ├── me/              # MeScreen
 │   ├── settings/        # SettingsScreen + SettingsViewModel
 │   └── theme/
 ```

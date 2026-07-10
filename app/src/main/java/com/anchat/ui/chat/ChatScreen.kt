@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
@@ -34,13 +35,14 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,25 +52,29 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import com.anchat.AnChatApplication
 import com.anchat.ui.main.LocalApp
+import com.anchat.ui.main.Screen
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(navController: NavHostController, convId: Long = -1L) {
+fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId: Long = -1L) {
     val app: AnChatApplication = LocalApp.current
     val context = LocalContext.current
     val viewModel: ChatViewModel = viewModel(
-        key = if (convId >= 0) "chat-$convId" else "chat-root",
-        factory = ChatViewModel.Factory(app, convId)
+        key = if (convId >= 0) "chat-$convId" else "chat-new-$characterId",
+        factory = ChatViewModel.Factory(app, convId, characterId)
     )
-
     val messages by viewModel.messages.collectAsStateWithLifecycle()
-    val input by viewModel.input.collectAsStateWithLifecycle()
+    // 输入框文本用本地 State 作为唯一真相源，避免 IME 组合态（中文拼音）因
+    // StateFlow 收集延迟而丢失，导致中文无法上屏。
+    var inputText by rememberSaveable { mutableStateOf("") }
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val title by viewModel.title.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -89,14 +95,35 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("AnChat") },
+            CenterAlignedTopAppBar(
+                title = { Text(title) },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        Log.d("ChatScreen", "点击了返回")
+                        // 优先 pop（从列表/通讯录进来）；若栈空则显式回到聊天列表
+                        if (!navController.popBackStack()) {
+                            navController.navigate(Screen.WeChat.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    inclusive = true
+                                }
+                                launchSingleTop = true
+                            }
+                        }
+                    }) {
+                        Icon(
+                            Icons.Filled.ArrowBack,
+                            contentDescription = "返回"
+                        )
+                    }
+                },
                 actions = {
                     IconButton(onClick = {
                         Log.d("ChatScreen", "点击了新建对话")
                         viewModel.startNewConversation()
                         navController.navigate("chat/-1") {
-                            popUpTo(navController.graph.id) { inclusive = false }
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                inclusive = false
+                            }
                             launchSingleTop = true
                         }
                     }) {
@@ -144,7 +171,9 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L) {
                                 Column {
                                     Text(
                                         text = if (expanded) msg.reasoningContent else "💭 思考过程（点击展开）",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                            alpha = 0.7f
+                                        ),
                                         style = MaterialTheme.typography.bodySmall,
                                         maxLines = if (expanded) Int.MAX_VALUE else 1
                                     )
@@ -206,22 +235,28 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
-                    value = input,
-                    onValueChange = viewModel::onInputChange,
+                    value = inputText,
+                    onValueChange = { inputText = it },
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("输入消息…") },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = {
-                        if (input.isNotBlank()) viewModel.send()
+                        if (inputText.isNotBlank()) {
+                            viewModel.send(inputText)
+                            inputText = ""
+                        }
                     }),
                     enabled = !isLoading
                 )
                 IconButton(
                     onClick = {
                         Log.d("ChatScreen", "点击了发送按钮")
-                        viewModel.send()
+                        if (inputText.isNotBlank()) {
+                            viewModel.send(inputText)
+                            inputText = ""
+                        }
                     },
-                    enabled = !isLoading && input.isNotBlank()
+                    enabled = !isLoading && inputText.isNotBlank()
                 ) {
                     Icon(Icons.Filled.Send, contentDescription = "发送")
                 }

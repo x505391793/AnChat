@@ -143,6 +143,22 @@ class ConfigManager(private val context: Context) {
         save(load().copy(apiKey = ""))
     }
 
+    // ─── 主身份 ──────────────────────────────────────────
+
+    fun getDefaultUserName(): String = load().defaultUserName
+
+    fun getDefaultUserDescription(): String = load().defaultUserDescription
+
+    fun getDefaultUserAvatar(): String = load().defaultUserAvatar
+
+    fun saveDefaultIdentity(userName: String, description: String, avatar: String) {
+        save(load().copy(
+            defaultUserName = userName.trim(),
+            defaultUserDescription = description.trim(),
+            defaultUserAvatar = avatar.trim()
+        ))
+    }
+
     // ─── Path management ───────────────────────────────────
 
     /**

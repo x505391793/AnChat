@@ -13,7 +13,9 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val repo: SettingsRepository = (app as AnChatApplication).settingsRepository
+    private val anchatApp = app as AnChatApplication
+    private val repo: SettingsRepository = anchatApp.settingsRepository
+    private val configManager = anchatApp.configManager
 
     private val _apiKey = MutableStateFlow(repo.getApiKey() ?: "")
     val apiKey: StateFlow<String> = _apiKey.asStateFlow()
@@ -47,9 +49,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     // ─── API Key ───────────────────────────────────────
 
-    fun onKeyChange(text: String) {
-        _apiKey.value = text
-    }
+    fun onKeyChange(text: String) { _apiKey.value = text }
 
     fun saveKey() {
         val key = _apiKey.value.trim()
@@ -85,7 +85,25 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repo.setDefaultModel(id) }
     }
 
-    fun clearMessage() {
-        _message.value = null
+    // ─── 主身份 ───────────────────────────────────────
+
+    private val _defaultUserName = MutableStateFlow(configManager.getDefaultUserName())
+    val defaultUserName: StateFlow<String> = _defaultUserName.asStateFlow()
+
+    private val _defaultUserDescription = MutableStateFlow(configManager.getDefaultUserDescription())
+    val defaultUserDescription: StateFlow<String> = _defaultUserDescription.asStateFlow()
+
+    fun onUserNameChange(text: String) { _defaultUserName.value = text }
+    fun onUserDescChange(text: String) { _defaultUserDescription.value = text }
+
+    fun saveIdentity() {
+        configManager.saveDefaultIdentity(
+            userName = _defaultUserName.value,
+            description = _defaultUserDescription.value,
+            avatar = configManager.getDefaultUserAvatar()  // 头像暂不处理
+        )
+        _message.value = "主身份已保存"
     }
+
+    fun clearMessage() { _message.value = null }
 }

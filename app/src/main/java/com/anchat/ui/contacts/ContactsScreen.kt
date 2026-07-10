@@ -1,4 +1,4 @@
-package com.anchat.ui.history
+package com.anchat.ui.contacts
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,15 +12,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -30,37 +25,27 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
-import com.anchat.data.local.entity.Conversation
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.anchat.data.local.entity.CharacterEntity
+import com.anchat.ui.main.LocalApp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(navController: NavHostController) {
-    val viewModel: HistoryViewModel = viewModel()
-    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+fun ContactsScreen(navController: NavHostController) {
+    val app = LocalApp.current
+    val characters by app.localRepository.observeCharacters()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
 
     Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("AnChat") },
-                actions = {
-                    IconButton(onClick = {
-                        navController.navigate("character/create")
-                    }) {
-                        Icon(Icons.Filled.Add, contentDescription = "新建角色卡")
-                    }
-                }
-            )
-        }
+        topBar = { CenterAlignedTopAppBar(title = { Text("通讯录") }) }
     ) { padding ->
-        if (conversations.isEmpty()) {
+        if (characters.isEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -68,7 +53,7 @@ fun HistoryScreen(navController: NavHostController) {
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("还没有对话", style = MaterialTheme.typography.bodyLarge)
+                Text("暂无角色卡", style = MaterialTheme.typography.bodyLarge)
             }
         } else {
             LazyColumn(
@@ -76,11 +61,18 @@ fun HistoryScreen(navController: NavHostController) {
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                items(conversations, key = { it.id }) { conv ->
-                    ConversationItem(
-                        conversation = conv,
-                        onClick = { navController.navigate("chat/${conv.id}") },
-                        onDelete = { viewModel.delete(conv.id) }
+                items(characters, key = { it.id }) { char ->
+                    CharacterItem(
+                        character = char,
+                        onClick = {
+                            // 用该角色进入新对话
+                            navController.navigate("chat/-1?characterId=${char.id}") {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    inclusive = false
+                                }
+                                launchSingleTop = true
+                            }
+                        }
                     )
                 }
             }
@@ -89,10 +81,9 @@ fun HistoryScreen(navController: NavHostController) {
 }
 
 @Composable
-private fun ConversationItem(
-    conversation: Conversation,
-    onClick: () -> Unit,
-    onDelete: () -> Unit
+private fun CharacterItem(
+    character: CharacterEntity,
+    onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -101,8 +92,7 @@ private fun ConversationItem(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 头像（首字母色块）
-        val avatarColor = avatarColors[conversation.id.toInt() and 0xFFFF]
+        val avatarColor = characterColors[character.id.toInt() and 0xFFFF]
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -111,26 +101,24 @@ private fun ConversationItem(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = conversation.title.firstOrNull()?.toString() ?: "?",
-                color = androidx.compose.ui.graphics.Color.White,
+                text = character.name.firstOrNull()?.toString() ?: "?",
+                color = Color.White,
                 style = MaterialTheme.typography.titleMedium
             )
         }
 
         Spacer(Modifier.width(12.dp))
 
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Text(
-                conversation.title,
+                character.name,
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (conversation.preview.isNotBlank()) {
+            if (!character.description.isNullOrBlank()) {
                 Text(
-                    conversation.preview,
+                    character.description,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -138,35 +126,14 @@ private fun ConversationItem(
                 )
             }
         }
-
-        Spacer(Modifier.width(8.dp))
-
-        Text(
-            formatDate(conversation.updatedAt),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Filled.Delete,
-                contentDescription = "删除",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
     }
 }
 
-private val avatarColors = listOf(
-    androidx.compose.ui.graphics.Color(0xFF07C160),
-    androidx.compose.ui.graphics.Color(0xFF10AEFF),
-    androidx.compose.ui.graphics.Color(0xFFF76260),
-    androidx.compose.ui.graphics.Color(0xFF6467F0),
-    androidx.compose.ui.graphics.Color(0xFFFA9D3B),
-    androidx.compose.ui.graphics.Color(0xFF9F8BFE),
+private val characterColors = listOf(
+    Color(0xFF07C160),
+    Color(0xFF10AEFF),
+    Color(0xFFF76260),
+    Color(0xFF6467F0),
+    Color(0xFFFA9D3B),
+    Color(0xFF9F8BFE),
 )
-
-private fun formatDate(ts: Long): String {
-    val sdf = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
-    return sdf.format(Date(ts))
-}

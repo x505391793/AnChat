@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.anchat.AnChatApplication
+import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Message
 import com.anchat.data.remote.DeepSeekConstants
 import com.anchat.data.remote.model.ChatCompletionResponse
@@ -23,20 +24,22 @@ data class ChatMessage(
     val reasoningContent: String? = null
 )
 
-class ChatViewModel(app: Application, convId: Long = -1L) : AndroidViewModel(app) {
+class ChatViewModel(
+    app: Application,
+    convId: Long = -1L,
+    characterId: Long = -1L
+) : AndroidViewModel(app) {
 
     private val anchatApp = app as AnChatApplication
     private val chatRepo = anchatApp.chatRepository
     private val localRepo = anchatApp.localRepository
     private val settingsRepo = anchatApp.settingsRepository
+    private val configManager = anchatApp.configManager
 
     private var conversationId: Long? = if (convId >= 0) convId else null
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
-
-    private val _input = MutableStateFlow("")
-    val input: StateFlow<String> = _input.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -44,8 +47,15 @@ class ChatViewModel(app: Application, convId: Long = -1L) : AndroidViewModel(app
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    /** 聊天页顶部标题：角色卡对话显示角色卡名字，普通对话兜底 "AnChat" */
+    private val _title = MutableStateFlow("AnChat")
+    val title: StateFlow<String> = _title.asStateFlow()
+
     private val _defaultModel = MutableStateFlow(DeepSeekConstants.MODELS.first().id)
     val defaultModel: StateFlow<String> = _defaultModel.asStateFlow()
+
+    /** 当前选中的角色卡，null = 无角色（用主身份） */
+    private var currentCharacter: CharacterEntity? = null
 
     init {
         viewModelScope.launch {
@@ -53,7 +63,6 @@ class ChatViewModel(app: Application, convId: Long = -1L) : AndroidViewModel(app
                 _defaultModel.value = models.firstOrNull { it.isDefault }?.id
                     ?: models.firstOrNull()?.id
                     ?: DeepSeekConstants.MODELS.first().id
-                Log.d(TAG, "默认模型: ${_defaultModel.value}")
             }
         }
         if (convId >= 0) {
@@ -62,46 +71,95 @@ class ChatViewModel(app: Application, convId: Long = -1L) : AndroidViewModel(app
                     ChatMessage(it.role, it.content, it.reasoningContent)
                 }
                 _messages.value = stored
-                Log.d(TAG, "加载对话 $convId: ${stored.size} 条消息")
+            }
+        }
+        // 角色卡：加载并设置（角色卡优先于配置文件主身份）
+        if (characterId >= 0) {
+            viewModelScope.launch {
+                val character = localRepo.getCharacter(characterId)
+                setCharacter(character)
+                _title.value = character?.name ?: "AnChat"
+                // 有开场白且是新对话 → 自动建对话并写入开场白
+                if (character != null) {
+                    val greeting = character.greeting
+                    if (!greeting.isNullOrBlank() && convId < 0) {
+                        val newId = localRepo.createConversation(
+                            title = character.name,
+                            modelId = null
+                        )
+                        conversationId = newId
+                        localRepo.insertMessage(
+                            Message(
+                                conversationId = newId,
+                                role = "assistant",
+                                content = greeting
+                            )
+                        )
+                        _messages.value = listOf(
+                            ChatMessage("assistant", greeting)
+                        )
+                    }
+                }
             }
         }
     }
 
-    fun onInputChange(text: String) {
-        _input.value = text
+    fun setCharacter(character: CharacterEntity?) {
+        currentCharacter = character
     }
 
-    fun send() {
-        val text = _input.value.trim()
-        Log.d(TAG, "send() 被调用, 输入: '${text.take(30)}', isLoading=${_isLoading.value}")
+    /**
+     * 构造最终的 system 消息：
+     * 角色的 systemPrompt + 用户身份（角色卡定义的 or 配置文件主身份）
+     */
+    private fun buildSystemPrompt(): String? {
+        val parts = mutableListOf<String>()
+
+        // 角色的 systemPrompt
+        val charPrompt = currentCharacter?.systemPrompt
+        if (charPrompt != null && charPrompt.isNotBlank()) {
+            parts.add(charPrompt)
+        }
+
+        // 用户身份：角色卡优先，否则用配置文件主身份
+        val userName = currentCharacter?.userName?.ifBlank { null }
+            ?: configManager.getDefaultUserName().ifBlank { null }
+        val userDesc = currentCharacter?.userDescription?.ifBlank { null }
+            ?: configManager.getDefaultUserDescription().ifBlank { null }
+
+        if (userName != null || userDesc != null) {
+            val identityParts = mutableListOf<String>()
+            if (userName != null) identityParts.add("你的对话对象名叫${userName}。")
+            if (userDesc != null) identityParts.add(userDesc)
+            parts.add(identityParts.joinToString("\n"))
+        }
+
+        return if (parts.isEmpty()) null else parts.joinToString("\n\n")
+    }
+
+    fun send(input: String) {
+        val text = input.trim()
 
         if (text.isBlank()) {
-            Log.w(TAG, "输入为空, 忽略")
             Toast.makeText(getApplication(), "输入为空", Toast.LENGTH_SHORT).show()
             return
         }
         if (_isLoading.value) {
-            Log.w(TAG, "正在等待回复中, 忽略")
             Toast.makeText(getApplication(), "正在回复中，请稍候", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // 1. 始终先显示用户消息
-        _input.value = ""
-        val userMsg = ChatMessage("user", text)
-        _messages.value = _messages.value + userMsg
-        Log.d(TAG, "用户消息已添加, 当前消息数=${_messages.value.size}")
+        // 1. 显示用户消息
+        _messages.value = _messages.value + ChatMessage("user", text)
 
         // 2. 检查 API Key
         val apiKey = settingsRepo.getApiKey()
         if (apiKey == null) {
-            Log.e(TAG, "API Key 未设置!")
             Toast.makeText(getApplication(), "请先在「设置」中填写 API Key", Toast.LENGTH_LONG).show()
             _messages.value = _messages.value + ChatMessage("system", "请先在「设置」中填写 API Key")
             _error.value = "请先在「设置」中填写 API Key"
             return
         }
-        Log.d(TAG, "API Key 已获取 (长度=${apiKey.length}), 模型=${_defaultModel.value}")
 
         // 3. 开始请求
         val model = _defaultModel.value
@@ -113,7 +171,6 @@ class ChatViewModel(app: Application, convId: Long = -1L) : AndroidViewModel(app
                 // DB: 创建/获取对话
                 val convId = conversationId ?: localRepo.createConversation(title = text.take(20))
                     .also { conversationId = it }
-                Log.d(TAG, "对话ID: $convId")
 
                 // DB: 保存用户消息
                 try {
@@ -121,18 +178,25 @@ class ChatViewModel(app: Application, convId: Long = -1L) : AndroidViewModel(app
                         Message(conversationId = convId, role = "user", content = text)
                     )
                 } catch (e: Exception) {
-                    Log.w(TAG, "保存用户消息失败(不影响流程): ${e.message}")
+                    Log.w(TAG, "保存用户消息失败: ${e.message}")
                 }
 
-                // 构造请求历史（去掉系统提示，这些由模型配置的 systemPrompt 处理）
-                val history = _messages.value
-                    .filter { it.role == "user" || it.role == "assistant" }
-                    .map { ChatMessageDto(role = it.role, content = it.content) }
-                Log.d(TAG, "发送 ${history.size} 条消息到 DeepSeek API, model=$model")
+                // 构造请求消息列表
+                val systemPrompt = buildSystemPrompt()
+                val chatMessages = mutableListOf<ChatMessageDto>()
 
-                // 调用 API（非流式）
-                val response: ChatCompletionResponse = chatRepo.sendChat(apiKey, model, history)
-                Log.d(TAG, "API 响应成功: choices=${response.choices.size}")
+                // system 消息放在最前面
+                if (systemPrompt != null) {
+                    chatMessages.add(ChatMessageDto(role = "system", content = systemPrompt))
+                }
+
+                // 历史对话（只取 user + assistant）
+                _messages.value
+                    .filter { it.role == "user" || it.role == "assistant" }
+                    .forEach { chatMessages.add(ChatMessageDto(role = it.role, content = it.content)) }
+
+                // 调用 API
+                val response: ChatCompletionResponse = chatRepo.sendChat(apiKey, model, chatMessages)
 
                 // 解析响应
                 val choice = response.choices.firstOrNull()
@@ -141,18 +205,14 @@ class ChatViewModel(app: Application, convId: Long = -1L) : AndroidViewModel(app
                 val finishReason = choice?.finishReason
                 val usage = response.usage
 
-                Log.d(TAG, "回复内容长度=${content.length}, 思考长度=${reasoningContent?.length ?: 0}, finishReason=$finishReason")
-                Log.d(TAG, "Token: prompt=${usage?.promptTokens}, completion=${usage?.completionTokens}, total=${usage?.totalTokens}, reasoning=${usage?.completionTokensDetails?.reasoningTokens}")
-                Log.d(TAG, "缓存: hit=${usage?.promptCacheHitTokens}, miss=${usage?.promptCacheMissTokens}")
-
-                // 在聊天区域显示
+                // 显示
                 _messages.value = _messages.value + ChatMessage(
                     role = "assistant",
                     content = content,
                     reasoningContent = reasoningContent
                 )
 
-                // DB: 保存 assistant 消息（含全部新字段）
+                // DB: 保存 assistant 消息
                 try {
                     localRepo.insertMessage(
                         Message(
@@ -171,10 +231,10 @@ class ChatViewModel(app: Application, convId: Long = -1L) : AndroidViewModel(app
                         )
                     )
                 } catch (e: Exception) {
-                    Log.w(TAG, "保存回复消息失败(不影响流程): ${e.message}")
+                    Log.w(TAG, "保存回复消息失败: ${e.message}")
                 }
 
-                // DB: 更新对话的 preview
+                // DB: 更新 preview
                 try {
                     localRepo.updatePreview(convId, content.take(50))
                 } catch (e: Exception) {
@@ -206,11 +266,12 @@ class ChatViewModel(app: Application, convId: Long = -1L) : AndroidViewModel(app
     companion object {
         private const val TAG = "AnChatVM"
 
-        fun Factory(app: Application, convId: Long) = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return ChatViewModel(app, convId) as T
+        fun Factory(app: Application, convId: Long, characterId: Long = -1L) =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    return ChatViewModel(app, convId, characterId) as T
+                }
             }
-        }
     }
 }

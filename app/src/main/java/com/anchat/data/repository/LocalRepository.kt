@@ -1,24 +1,27 @@
 package com.anchat.data.repository
 
+import com.anchat.data.local.dao.CharacterDao
 import com.anchat.data.local.dao.ConversationDao
 import com.anchat.data.local.dao.MessageDao
+import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Conversation
 import com.anchat.data.local.entity.Message
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Local-only access to conversations and their messages (Room).
- */
 class LocalRepository(
     private val conversationDao: ConversationDao,
-    private val messageDao: MessageDao
+    private val messageDao: MessageDao,
+    private val characterDao: CharacterDao
 ) {
+    // ─── 对话 ────────────────────────────────────────
     fun observeConversations(): Flow<List<Conversation>> = conversationDao.observeAll()
     fun observeMessages(conversationId: Long): Flow<List<Message>> =
         messageDao.observeByConversation(conversationId)
 
     suspend fun getMessages(conversationId: Long): List<Message> =
         messageDao.getByConversation(conversationId)
+
+    suspend fun getConversation(id: Long): Conversation? = conversationDao.getById(id)
 
     suspend fun createConversation(title: String = "新对话", modelId: String? = null): Long =
         conversationDao.insert(Conversation(title = title, modelId = modelId))
@@ -31,4 +34,12 @@ class LocalRepository(
         messageDao.deleteByConversation(id)
         conversationDao.deleteById(id)
     }
+
+    // ─── 角色 ────────────────────────────────────────
+    fun observeCharacters(): Flow<List<CharacterEntity>> = characterDao.observeAll()
+    suspend fun getAllCharacters(): List<CharacterEntity> = characterDao.getAll()
+    suspend fun getCharacter(id: Long): CharacterEntity? = characterDao.getById(id)
+    suspend fun insertCharacter(character: CharacterEntity): Long = characterDao.insert(character)
+    suspend fun updateCharacter(character: CharacterEntity) = characterDao.update(character)
+    suspend fun deleteCharacter(character: CharacterEntity) = characterDao.delete(character)
 }

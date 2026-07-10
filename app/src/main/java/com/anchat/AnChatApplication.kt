@@ -29,7 +29,7 @@ class AnChatApplication : Application() {
         ChatRepository(deepSeekApi, database.conversationDao(), database.messageDao())
     }
     val localRepository: LocalRepository by lazy {
-        LocalRepository(database.conversationDao(), database.messageDao())
+        LocalRepository(database.conversationDao(), database.messageDao(), database.characterDao())
     }
     val settingsRepository: SettingsRepository by lazy {
         SettingsRepository(deepSeekApi, configManager, database.modelDao())
