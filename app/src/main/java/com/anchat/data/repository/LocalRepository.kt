@@ -23,13 +23,11 @@ class LocalRepository(
 
     suspend fun getConversation(id: Long): Conversation? = conversationDao.getById(id)
 
-    suspend fun createConversation(
-        title: String = "新对话",
-        modelId: String? = null,
-        characterId: Long = -1L
-    ): Long = conversationDao.insert(
-        Conversation(title = title, modelId = modelId, characterId = characterId)
-    )
+    fun observeConversation(id: Long): Flow<Conversation?> = conversationDao.observeById(id)
+
+    suspend fun createConversation(conv: Conversation): Long = conversationDao.insert(conv)
+
+    suspend fun updateConversation(conv: Conversation) = conversationDao.update(conv)
 
     suspend fun insertMessage(message: Message): Long = messageDao.insert(message)
     suspend fun renameConversation(id: Long, title: String) = conversationDao.rename(id, title)
@@ -45,6 +43,7 @@ class LocalRepository(
     fun observeCharacters(): Flow<List<CharacterEntity>> = characterDao.observeAll()
     suspend fun getAllCharacters(): List<CharacterEntity> = characterDao.getAll()
     suspend fun getCharacter(id: Long): CharacterEntity? = characterDao.getById(id)
+    fun observeCharacter(id: Long): Flow<CharacterEntity?> = characterDao.observeById(id)
     suspend fun insertCharacter(character: CharacterEntity): Long = characterDao.insert(character)
     suspend fun updateCharacter(character: CharacterEntity) = characterDao.update(character)
     suspend fun deleteCharacter(character: CharacterEntity) = characterDao.delete(character)

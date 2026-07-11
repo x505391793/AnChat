@@ -16,18 +16,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Scaffold
@@ -40,11 +35,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -54,9 +47,6 @@ import androidx.navigation.NavHostController
 @Composable
 fun SettingsScreen(navController: NavHostController) {
     val viewModel: SettingsViewModel = viewModel()
-    val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
-    val models by viewModel.models.collectAsStateWithLifecycle(initialValue = emptyList())
-    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val configDisplayPath by viewModel.configDisplayPath.collectAsStateWithLifecycle()
     val defaultUserName by viewModel.defaultUserName.collectAsStateWithLifecycle()
@@ -72,7 +62,7 @@ fun SettingsScreen(navController: NavHostController) {
 
     LaunchedEffect(message) {
         if (message != null) {
-            kotlinx.coroutines.delay(2500)
+            kotlinx.coroutines.delay(2500L)
             viewModel.clearMessage()
         }
     }
@@ -85,7 +75,7 @@ fun SettingsScreen(navController: NavHostController) {
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
-                            Icons.Filled.ArrowBack,
+                            Icons.AutoMirrored.Filled.ArrowBackIos,
                             contentDescription = "返回",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
@@ -146,6 +136,40 @@ fun SettingsScreen(navController: NavHostController) {
                                 checkedTrackColor = MaterialTheme.colorScheme.primary
                             )
                         )
+                    }
+                }
+            }
+
+            // ─── 模型管理 ───────────────────────────
+            item {
+                SectionTitle("模型")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { navController.navigate("models") },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "模型管理",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "添加 / 删除模型，配置各自的 API Key 与地址",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                 }
             }
@@ -227,92 +251,6 @@ fun SettingsScreen(navController: NavHostController) {
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.clickable { viewModel.resetConfigPath() }
                             )
-                        }
-                    }
-                }
-            }
-
-            // ─── API Key ─────────────────────────────
-            item {
-                SectionTitle("DeepSeek API Key")
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        TextField(
-                            value = apiKey,
-                            onValueChange = viewModel::onKeyChange,
-                            placeholder = { Text("API Key", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(autoCorrect = false),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = fieldColors()
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            Text(
-                                "保存 Key",
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable { viewModel.saveKey() }
-                            )
-                            Spacer(Modifier.width(20.dp))
-                            Text(
-                                if (isRefreshing) "刷新中…" else "从 API 拉取模型",
-                                color = if (isRefreshing) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable(enabled = !isRefreshing) {
-                                    viewModel.refresh()
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ─── 默认模型 ────────────────────────────
-            item {
-                SectionTitle("默认模型")
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                ) {
-                    Column {
-                        models.forEachIndexed { index, model ->
-                            ListItem(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { viewModel.setDefault(model.id) },
-                                headlineContent = {
-                                    Text(model.name, color = MaterialTheme.colorScheme.onSurface)
-                                },
-                                supportingContent = {
-                                    if (model.description.isNotBlank()) {
-                                        Text(model.description, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingContent = {
-                                    RadioButton(
-                                        selected = model.isDefault,
-                                        onClick = { viewModel.setDefault(model.id) },
-                                        colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
-                                    )
-                                },
-                                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface)
-                            )
-                            if (index < models.lastIndex) {
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outlineVariant,
-                                    modifier = Modifier.padding(start = 16.dp)
-                                )
-                            }
                         }
                     }
                 }

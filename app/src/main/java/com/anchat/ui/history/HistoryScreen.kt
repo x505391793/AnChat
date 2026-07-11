@@ -22,22 +22,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import com.anchat.ui.theme.avatarColor
+import com.anchat.ui.theme.avatarInitial
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,16 +64,30 @@ import kotlinx.coroutines.launch
 fun HistoryScreen(navController: NavHostController) {
     val viewModel: HistoryViewModel = viewModel()
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    val menuExpanded = remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("AnChat") },
                 actions = {
-                    IconButton(onClick = {
-                        navController.navigate("character/create")
-                    }) {
-                        Icon(Icons.Filled.Add, contentDescription = "新建角色卡")
+                    // 微信式「+」弹出菜单：添加朋友（新建角色卡）
+                    Box {
+                        IconButton(onClick = { menuExpanded.value = true }) {
+                            Icon(Icons.Outlined.Add, contentDescription = "添加朋友")
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded.value,
+                            onDismissRequest = { menuExpanded.value = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("添加朋友") },
+                                onClick = {
+                                    menuExpanded.value = false
+                                    navController.navigate("character/create")
+                                }
+                            )
+                        }
                     }
                 }
             )
@@ -109,7 +129,7 @@ private fun ConversationItem(
     onPin: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val revealWidth = 176.dp
+    val revealWidth = 160.dp
     val density = LocalDensity.current
     val revealPx = with(density) { revealWidth.toPx() }
     val offset = remember { Animatable(0f) }
@@ -121,8 +141,7 @@ private fun ConversationItem(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 12.dp),
+                .background(MaterialTheme.colorScheme.surfaceVariant),
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -192,8 +211,13 @@ private fun ConversationRowContent(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 头像（首字母色块）
-        val avatarColor = avatarColors[androidx.core.math.MathUtils.clamp(conversation.id.toInt().absoluteValue, 0, avatarColors.size - 1)]
+        // 名称：备注优先，其次角色名（对话内改名后列表同步），其次标题
+        val displayName = conversation.charRemark?.takeIf { it.isNotBlank() }
+            ?: conversation.charName?.takeIf { it.isNotBlank() } ?: conversation.title
+
+        // 头像（首字母色块）：按「原名」展示与配色，备注不影响头像
+        val avatarName = conversation.charName?.takeIf { it.isNotBlank() } ?: conversation.title
+        val avatarColor = avatarColor(avatarName)
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -202,7 +226,7 @@ private fun ConversationRowContent(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = conversation.title.firstOrNull()?.toString() ?: "?",
+                text = avatarInitial(avatarName),
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium
             )
@@ -224,7 +248,7 @@ private fun ConversationRowContent(
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(
-                    conversation.title,
+                    displayName,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -250,15 +274,6 @@ private fun ConversationRowContent(
         )
     }
 }
-
-private val avatarColors = listOf(
-    androidx.compose.ui.graphics.Color(0xFF07C160),
-    androidx.compose.ui.graphics.Color(0xFF10AEFF),
-    androidx.compose.ui.graphics.Color(0xFFF76260),
-    androidx.compose.ui.graphics.Color(0xFF6467F0),
-    androidx.compose.ui.graphics.Color(0xFFFA9D3B),
-    androidx.compose.ui.graphics.Color(0xFF9F8BFE),
-)
 
 private fun formatDate(ts: Long): String {
     val sdf = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())

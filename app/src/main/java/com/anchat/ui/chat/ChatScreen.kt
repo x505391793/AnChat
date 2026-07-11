@@ -2,8 +2,8 @@ package com.anchat.ui.chat
 
 import android.util.Log
 import android.widget.Toast
-import androidx.core.math.MathUtils
-import androidx.compose.animation.AnimatedVisibility
+import com.anchat.ui.theme.avatarColor
+import com.anchat.ui.theme.avatarInitial
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,10 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,7 +63,6 @@ import com.anchat.AnChatApplication
 import com.anchat.ui.main.LocalApp
 import com.anchat.ui.main.LocalIsDark
 import com.anchat.ui.main.Screen
-import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,6 +82,20 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
     val error by viewModel.error.collectAsStateWithLifecycle()
     val title by viewModel.title.collectAsStateWithLifecycle()
     val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
+    val profile by viewModel.profile.collectAsStateWithLifecycle()
+    val conversationId by viewModel.conversationIdFlow.collectAsStateWithLifecycle()
+
+    // 头像：基于对话级角色名（可被对话内编辑覆盖），回退标题；用于配色与首字（备注不影响）
+    val assistantName = profile?.charName?.takeIf { it.isNotBlank() }
+        ?: title.takeIf { it.isNotBlank() }
+        ?: "AI"
+
+    // 顶部名称：备注优先，其次角色名，其次标题；AI 生成中显示「对方正在输入中……」
+    val displayName = profile?.charRemark?.takeIf { it.isNotBlank() }
+        ?: profile?.charName?.takeIf { it.isNotBlank() }
+        ?: title.takeIf { it.isNotBlank() }
+        ?: "新对话"
+    val topBarTitle = if (isLoading) "对方正在输入中……" else displayName
 
     // 跟随用户主题开关（而非系统），使气泡配色随设置切换
     val dark = LocalIsDark.current
@@ -109,7 +120,7 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(title) },
+                title = { Text(topBarTitle) },
                 navigationIcon = {
                     IconButton(onClick = {
                         Log.d("ChatScreen", "点击了返回")
@@ -124,23 +135,9 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
                         }
                     }) {
                         Icon(
-                            Icons.Filled.ArrowBack,
+                            Icons.AutoMirrored.Filled.ArrowBackIos,
                             contentDescription = "返回"
                         )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        Log.d("ChatScreen", "点击了新建对话")
-                        viewModel.startNewConversation()
-                        navController.navigate("chat/-1") {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                inclusive = false
-                            }
-                            launchSingleTop = true
-                        }
-                    }) {
-                        Icon(Icons.Filled.Add, contentDescription = "新建对话")
                     }
                 }
             )
@@ -167,21 +164,17 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
                     ChatMessageItem(
                         msg = msg,
                         dark = dark,
-                        assistantInitial = title.firstOrNull()?.toString() ?: "AI",
-                        showReasoning = thinkingEnabled
-                    )
-                }
-
-                // 加载中指示器
-                if (isLoading && messages.lastOrNull()?.role != "assistant") {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Start
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.padding(8.dp))
+                        assistantName = assistantName,
+                        showReasoning = thinkingEnabled,
+                        onAvatarClick = { isUser ->
+                            val id = conversationId
+                            if (id != null) {
+                                navController.navigate(
+                                    "conversation/$id?part=${if (isUser) "self" else "ai"}"
+                                )
+                            }
                         }
-                    }
+                    )
                 }
             }
 
@@ -224,7 +217,13 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
 }
 
 @Composable
-private fun ChatMessageItem(msg: ChatMessage, dark: Boolean, assistantInitial: String, showReasoning: Boolean = true) {
+private fun ChatMessageItem(
+    msg: ChatMessage,
+    dark: Boolean,
+    assistantName: String,
+    showReasoning: Boolean = true,
+    onAvatarClick: ((isUser: Boolean) -> Unit)? = null
+) {
     val isUser = msg.role == "user"
     val isSystem = msg.role == "system"
     val isAssistant = msg.role == "assistant"
@@ -279,7 +278,11 @@ private fun ChatMessageItem(msg: ChatMessage, dark: Boolean, assistantInitial: S
             verticalAlignment = Alignment.Top
         ) {
             if (!isUser) {
-                ChatAvatar(assistantInitial, isUser = false)
+                    ChatAvatar(
+                        assistantName,
+                    isUser = false,
+                    onClick = onAvatarClick?.let { { it(false) } }
+                )
                 Spacer(Modifier.width(8.dp))
             }
             MessageBubble(
@@ -289,7 +292,11 @@ private fun ChatMessageItem(msg: ChatMessage, dark: Boolean, assistantInitial: S
             )
             if (isUser) {
                 Spacer(Modifier.width(8.dp))
-                ChatAvatar("我", isUser = true)
+                ChatAvatar(
+                    "我",
+                    isUser = true,
+                    onClick = onAvatarClick?.let { { it(true) } }
+                )
             }
         }
     }
@@ -335,33 +342,22 @@ private fun MessageBubble(text: String, isUser: Boolean, dark: Boolean) {
 }
 
 @Composable
-private fun ChatAvatar(initial: String, isUser: Boolean) {
-    // 用 abs % size 取色，避免 hashCode().and(0xFFFF) 出现负数或越界下标导致崩溃
-    val color = if (isUser) {
-        Color(0xFFB2B2B2)
-    } else {
-        chatAvatarColors[androidx.core.math.MathUtils.clamp(initial.hashCode().absoluteValue, 0, chatAvatarColors.size - 1)]
-    }
+private fun ChatAvatar(name: String, isUser: Boolean, onClick: (() -> Unit)? = null) {
+    // 用户侧固定灰底「我」；AI 侧按原名统一配色（与列表/名片一致，备注不影响）
+    val color = if (isUser) Color(0xFFB2B2B2) else avatarColor(name)
+    val label = if (isUser) "我" else avatarInitial(name)
     Box(
         modifier = Modifier
             .size(36.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(color),
+            .background(color)
+            .clickable(enabled = onClick != null) { onClick?.invoke() },
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = initial,
+            text = label,
             color = Color.White,
             style = MaterialTheme.typography.titleSmall
         )
     }
 }
-
-private val chatAvatarColors = listOf(
-    Color(0xFF07C160),
-    Color(0xFF10AEFF),
-    Color(0xFFF76260),
-    Color(0xFF6467F0),
-    Color(0xFFFA9D3B),
-    Color(0xFF9F8BFE),
-)

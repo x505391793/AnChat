@@ -7,15 +7,13 @@ import androidx.room.RoomDatabase
 import com.anchat.data.local.dao.CharacterDao
 import com.anchat.data.local.dao.ConversationDao
 import com.anchat.data.local.dao.MessageDao
-import com.anchat.data.local.dao.ModelDao
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Conversation
 import com.anchat.data.local.entity.Message
-import com.anchat.data.local.entity.ModelEntity
 
 @Database(
-    entities = [Conversation::class, Message::class, ModelEntity::class, CharacterEntity::class],
-    version = 5,
+    entities = [Conversation::class, Message::class, CharacterEntity::class],
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,7 +21,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun characterDao(): CharacterDao
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
-    abstract fun modelDao(): ModelDao
 
     companion object {
         private const val DB_NAME = "anchat.db"

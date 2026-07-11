@@ -25,6 +25,9 @@ interface CharacterDao {
     @Query("SELECT * FROM character WHERE id = :id")
     suspend fun getById(id: Long): CharacterEntity?
 
+    @Query("SELECT * FROM character WHERE id = :id")
+    fun observeById(id: Long): Flow<CharacterEntity?>
+
     @Query("SELECT * FROM character WHERE name = :name")
     suspend fun getByName(name: String): CharacterEntity?
 }

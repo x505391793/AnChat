@@ -12,6 +12,9 @@ data class CharacterEntity(
     /** 角色名称 */
     val name: String,
 
+    /** 备注（用户对好友的备注名，优先于 name 展示） */
+    @ColumnInfo(name = "remark") val remark: String? = null,
+
     /** 角色头像（路径或 URL） */
     val avatar: String? = null,
 

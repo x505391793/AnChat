@@ -21,6 +21,9 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE id = :id")
     suspend fun getById(id: Long): Conversation?
 
+    @Query("SELECT * FROM conversations WHERE id = :id")
+    fun observeById(id: Long): Flow<Conversation?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(conversation: Conversation): Long
 

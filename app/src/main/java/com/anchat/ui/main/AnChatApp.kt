@@ -31,11 +31,14 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.anchat.ui.chat.ChatScreen
+import com.anchat.ui.chat.ConversationProfileEditScreen
+import com.anchat.ui.contacts.CharacterCardScreen
 import com.anchat.ui.contacts.CharacterEditScreen
 import com.anchat.ui.contacts.ContactsScreen
 import com.anchat.ui.discover.DiscoverScreen
 import com.anchat.ui.history.HistoryScreen
 import com.anchat.ui.me.MeScreen
+import com.anchat.ui.settings.ModelManageScreen
 import com.anchat.ui.settings.SettingsScreen
 
 /** WeChat-style green for selected tab. */
@@ -76,9 +79,12 @@ fun AnChatApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // 聊天页 / 设置页隐藏底部栏（微信式全屏）
+    // 聊天页 / 角色名片·编辑页 / 对话身份编辑页 / 设置页 / 模型管理页隐藏底部栏（微信式全屏二级页）
     val showBottomBar = currentRoute != null
         && !currentRoute.startsWith("chat")
+        && !currentRoute.startsWith("character")
+        && !currentRoute.startsWith("conversation")
+        && !currentRoute.startsWith("models")
         && currentRoute != "settings"
 
     Scaffold(
@@ -100,6 +106,36 @@ fun AnChatApp() {
             composable("character/create") {
                 CharacterEditScreen(navController = navController)
             }
+            composable(
+                route = "character/{characterId}",
+                arguments = listOf(
+                    navArgument("characterId") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    }
+                )
+            ) { backStackEntry ->
+                val characterId = backStackEntry.arguments?.getLong("characterId") ?: -1L
+                CharacterCardScreen(
+                    navController = navController,
+                    characterId = characterId
+                )
+            }
+            composable(
+                route = "character/edit/{editId}",
+                arguments = listOf(
+                    navArgument("editId") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    }
+                )
+            ) { backStackEntry ->
+                val editId = backStackEntry.arguments?.getLong("editId") ?: -1L
+                CharacterEditScreen(
+                    navController = navController,
+                    editId = editId
+                )
+            }
             composable(Screen.Discover.route) {
                 DiscoverScreen()
             }
@@ -108,6 +144,9 @@ fun AnChatApp() {
             }
             composable("settings") {
                 SettingsScreen(navController = navController)
+            }
+            composable("models") {
+                ModelManageScreen(navController = navController)
             }
             composable(
                 route = "chat/{convId}?characterId={characterId}",
@@ -128,6 +167,27 @@ fun AnChatApp() {
                     navController = navController,
                     convId = convId,
                     characterId = characterId
+                )
+            }
+            composable(
+                route = "conversation/{convId}?part={part}",
+                arguments = listOf(
+                    navArgument("convId") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    },
+                    navArgument("part") {
+                        type = NavType.StringType
+                        defaultValue = "ai"
+                    }
+                )
+            ) { backStackEntry ->
+                val convId = backStackEntry.arguments?.getLong("convId") ?: -1L
+                val part = backStackEntry.arguments?.getString("part") ?: "ai"
+                ConversationProfileEditScreen(
+                    navController = navController,
+                    convId = convId,
+                    part = part
                 )
             }
         }

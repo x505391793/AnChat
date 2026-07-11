@@ -15,7 +15,7 @@ class ChatRepository(
     private val conversationDao: ConversationDao,
     private val messageDao: MessageDao
 ) {
-    suspend fun sendChat(apiKey: String, model: String, messages: List<ChatMessageDto>): ChatCompletionResponse {
-        return api.sendChat(apiKey, ChatRequest(model = model, messages = messages, stream = false))
+    suspend fun sendChat(apiKey: String, apiUrl: String, model: String, messages: List<ChatMessageDto>): ChatCompletionResponse {
+        return api.sendChat(apiKey, apiUrl, ChatRequest(model = model, messages = messages, stream = false))
     }
 }

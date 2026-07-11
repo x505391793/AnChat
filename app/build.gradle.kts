@@ -83,4 +83,7 @@ dependencies {
     // SAF directory picker support
     implementation("androidx.documentfile:documentfile:1.0.1")
 
+    // 中文拼音分组（通讯录按拼音首字母分类：安→A、兰→L）
+    implementation("com.belerweb:pinyin4j:2.5.1")
+
 }

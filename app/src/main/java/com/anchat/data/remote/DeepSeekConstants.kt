@@ -5,8 +5,8 @@ package com.anchat.data.remote
  * with the original Spring Boot contract (`api.deepseek.com`, ModelEnums).
  */
 object DeepSeekConstants {
-    const val API_URL = "https://api.deepseek.com/chat/completions"
-    const val MODELS_URL = "https://api.deepseek.com/models"
+    /** 默认 API 基地址（用户未填时使用，仅作种子占位；真实 Key 由模型管理添加） */
+    const val DEFAULT_BASE_URL = "https://api.deepseek.com"
 
     /** Bundled model list (mirrors the old `ModelEnums`).
      *  Note: deepseek-v4-flash-chat was a UI alias in the Spring Boot version;

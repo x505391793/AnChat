@@ -40,13 +40,14 @@ class DeepSeekApi {
      * Send a chat completion request (non-streaming). Returns the full response
      * including content, reasoning_content, and token usage.
      */
-    suspend fun sendChat(apiKey: String, request: ChatRequest): ChatCompletionResponse {
-        Log.d(TAG, "sendChat: model=${request.model}, messages=${request.messages.size}, stream=${request.stream}")
+    suspend fun sendChat(apiKey: String, apiUrl: String, request: ChatRequest): ChatCompletionResponse {
+        Log.d(TAG, "sendChat: model=${request.model}, apiUrl=$apiUrl, messages=${request.messages.size}, stream=${request.stream}")
         val payload = json.encodeToString(ChatRequest.serializer(), request)
         Log.d(TAG, "请求体: $payload")
         val body = payload.toRequestBody("application/json".toMediaType())
+        val fullUrl = "${apiUrl.trim().removeSuffix("/")}/chat/completions"
         val httpRequest = Request.Builder()
-            .url(DeepSeekConstants.API_URL)
+            .url(fullUrl)
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
             .post(body)
@@ -79,9 +80,10 @@ class DeepSeekApi {
      * Returns an empty list on any failure (callers fall back to the bundled list).
      */
     @OptIn(ExperimentalSerializationApi::class)
-    fun getModels(apiKey: String): Flow<List<ModelInfo>> = flow {
+    fun getModels(apiKey: String, baseUrl: String): Flow<List<ModelInfo>> = flow {
+        val fullUrl = "${baseUrl.trim().removeSuffix("/")}/models"
         val httpRequest = Request.Builder()
-            .url(DeepSeekConstants.MODELS_URL)
+            .url(fullUrl)
             .addHeader("Authorization", "Bearer $apiKey")
             .get()
             .build()

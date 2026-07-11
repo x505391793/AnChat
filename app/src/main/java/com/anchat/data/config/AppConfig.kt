@@ -4,8 +4,13 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class AppConfig(
-    /** DeepSeek API key. Blank = not set. */
-    val apiKey: String = "",
+    /**
+     * 已添加的模型列表（含各自的 apiKey / apiUrl）。
+     * 聊天时按模型 id 反查对应的服务商凭证。
+     */
+    val models: List<ModelConfig> = emptyList(),
+    /** 默认模型 id（空 = 取模型列表第一个） */
+    val defaultModelId: String? = null,
     /**
      * Override for the config file location.
      * Blank = use the default path inside the app's internal storage.

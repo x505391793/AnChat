@@ -2,52 +2,31 @@ package com.anchat.data.repository
 
 import android.net.Uri
 import com.anchat.data.config.ConfigManager
-import com.anchat.data.local.dao.ModelDao
-import com.anchat.data.local.entity.ModelEntity
+import com.anchat.data.config.ModelConfig
 import com.anchat.data.remote.DeepSeekApi
+import com.anchat.data.remote.ModelInfo
 import kotlinx.coroutines.flow.Flow
 
 class SettingsRepository(
     private val api: DeepSeekApi,
-    private val configManager: ConfigManager,
-    private val modelDao: ModelDao
+    private val configManager: ConfigManager
 ) {
-    fun getApiKey(): String? = configManager.getApiKey()
-    fun saveApiKey(key: String) = configManager.saveApiKey(key)
-    fun clearApiKey() = configManager.clearApiKey()
-
     fun getConfigDisplayPath(): String = configManager.displayPath
     fun isSafMode(): Boolean = configManager.isSafMode
-    fun setSafTreeUri(uri: Uri) = configManager.setSafTreeUri(uri)
-    fun resetToDefault() = configManager.resetToDefault()
+    fun setSafTreeUri(uri: Uri) { configManager.setSafTreeUri(uri); configManager.resync() }
+    fun resetToDefault() { configManager.resetToDefault(); configManager.resync() }
 
-    fun observeModels(): Flow<List<ModelEntity>> = modelDao.observeAll()
-    suspend fun getDefaultModel(): ModelEntity? = modelDao.getDefault()
-    suspend fun setDefaultModel(id: String) {
-        modelDao.clearDefault()
-        modelDao.setDefault(id)
-    }
+    // ─── 模型（存于配置文件，含各自的 apiKey / apiUrl） ───
 
-    fun refreshModels(apiKey: String): Flow<List<ModelEntity>> {
-        return kotlinx.coroutines.flow.flow {
-            val remote = api.getModels(apiKey)
-            remote.collect { list ->
-                if (list.isNotEmpty()) {
-                    val hadDefault = modelDao.getDefault()?.id
-                    modelDao.clear()
-                    modelDao.insertAll(
-                        list.map { m ->
-                            ModelEntity(
-                                id = m.id,
-                                name = m.name,
-                                description = "",
-                                isDefault = m.id == (hadDefault ?: list.first().id)
-                            )
-                        }
-                    )
-                }
-                emit(modelDao.getAll())
-            }
-        }
-    }
+    fun observeModels(): Flow<List<ModelConfig>> = configManager.modelsFlow
+    fun observeDefaultModelId(): Flow<String?> = configManager.defaultModelIdFlow
+    fun getDefaultModelId(): String? = configManager.defaultModelIdFlow.value
+    fun getModelConfig(id: String): ModelConfig? = configManager.getModel(id)
+    fun setDefaultModel(id: String) = configManager.setDefaultModel(id)
+    fun addModels(list: List<ModelConfig>) = configManager.addModels(list)
+    fun removeModel(id: String) = configManager.removeModel(id)
+
+    /** 按 baseUrl + apiKey 拉取远端模型列表 */
+    fun fetchModels(apiKey: String, baseUrl: String): Flow<List<ModelInfo>> =
+        api.getModels(apiKey, baseUrl)
 }

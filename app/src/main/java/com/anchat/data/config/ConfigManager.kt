@@ -46,7 +46,65 @@ class ConfigManager(private val context: Context) {
 
     fun setThemeMode(mode: String) {
         _themeMode.value = mode
-        save(load().copy(themeMode = mode))
+        persist { cfg -> cfg.copy(themeMode = mode) }
+    }
+
+    // ─── 模型（含各自的 apiKey / apiUrl） ─────────
+    private val _models = MutableStateFlow(load().models)
+    val modelsFlow: StateFlow<List<ModelConfig>> = _models.asStateFlow()
+
+    private val _defaultModelId = MutableStateFlow(load().defaultModelId)
+    val defaultModelIdFlow: StateFlow<String?> = _defaultModelId.asStateFlow()
+
+    fun getModels(): List<ModelConfig> = _models.value
+
+    fun getModel(id: String): ModelConfig? = _models.value.firstOrNull { it.id == id }
+
+    /** 添加（或覆盖同 id）模型，并在尚无默认时设为默认。 */
+    fun addModels(models: List<ModelConfig>) {
+        if (models.isEmpty()) return
+        persist { cfg ->
+            val merged = cfg.models.filterNot { existing ->
+                models.any { it.id == existing.id }
+            } + models
+            val default = cfg.defaultModelId ?: merged.firstOrNull()?.id
+            cfg.copy(models = merged, defaultModelId = default)
+        }
+    }
+
+    fun removeModel(id: String) {
+        persist { cfg ->
+            val merged = cfg.models.filterNot { it.id == id }
+            val default = if (cfg.defaultModelId == id) merged.firstOrNull()?.id else cfg.defaultModelId
+            cfg.copy(models = merged, defaultModelId = default)
+        }
+    }
+
+    fun setDefaultModel(id: String) {
+        persist { cfg -> cfg.copy(defaultModelId = id) }
+    }
+
+    /**
+     * 路径切换（SAF / 默认）后重新从磁盘同步内存流，
+     * 因为配置文件可能已被迁移。
+     */
+    fun resync() {
+        val cfg = load()
+        _themeMode.value = cfg.themeMode
+        _models.value = cfg.models
+        _defaultModelId.value = cfg.defaultModelId
+    }
+
+    /**
+     * 统一写入入口：写盘 + 同步所有响应式流，保证单一数据源。
+     * [mutate] 接收当前磁盘配置，返回新配置。
+     */
+    private fun persist(mutate: (AppConfig) -> AppConfig) {
+        val newConfig = mutate(load())
+        save(newConfig)
+        _themeMode.value = newConfig.themeMode
+        _models.value = newConfig.models
+        _defaultModelId.value = newConfig.defaultModelId
     }
 
     /** SAF tree URI if the user picked a custom directory. Null = File mode. */
@@ -140,21 +198,6 @@ class ConfigManager(private val context: Context) {
                 }
             }
         } catch (_: Exception) { /* save failed silently */ }
-    }
-
-    // ─── API Key ───────────────────────────────────────────
-
-    fun getApiKey(): String? {
-        val key = load().apiKey
-        return if (key.isBlank()) null else key
-    }
-
-    fun saveApiKey(key: String) {
-        save(load().copy(apiKey = key.trim()))
-    }
-
-    fun clearApiKey() {
-        save(load().copy(apiKey = ""))
     }
 
     // ─── 主身份 ──────────────────────────────────────────
