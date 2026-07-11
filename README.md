@@ -7,19 +7,21 @@
 - 2026-07-10：基础对话功能移植完成（Spring Boot → Android 原生）
 - 2026-07-10：微信式 UI 重构
 - 2026-07-10：深色模式
+- 2026-07-11：UI 更新（通讯录 / 角色卡 / 个人名片 / 对话列表 / 推送通知）—— 暂时完结一阶段，后续持续调整
+- 2026-07-11：对话处理引擎（行为机）框架接入 + 原始 / 行为两层数据层
 
 
 ## 进行中
 
-- UI 布局已对齐微信规范（颜色 / 气泡 / 头像 / 底栏）
+- 行为分时推送 UI（behaviors 表 excuTime 可视化 / 切表交互）
+- 长期记忆
 
 ## 待实现
 
 1. 仿真实聊天界面交互（长按菜单、滑动删除、打字动画）
-2. 聊天行为逻辑管理模块
-3. 长期记忆
-4. 对话搜索 / 星标筛选
-5. 模型列表自动拉取
+2. 长期记忆
+3. 对话搜索 / 星标筛选
+4. 模型列表自动拉取
 
 ## 技术栈
 
@@ -33,7 +35,9 @@
 | 配置 | JSON 文件 |
 | 语言 | Kotlin 2.0.21 / JVM 17 |
 
-## 数据库 (Room v2)
+## 数据库 (Room v11)
+
+> 开发期 `fallbackToDestructiveMigration`：表结构变动直接重建，后续需写 Migration 保数据。模型已移出 Room 存 JSON 配置，无 `models` 表。
 
 **conversations**
 
@@ -43,8 +47,14 @@
 | title | String | 对话标题 |
 | preview | String? | 最新消息摘要 |
 | isStar | Boolean | 星标 |
-| modelId | String? | 默认模型 |
-| systemPrompt | String? | 系统提示词 |
+| isPinned | Boolean | 置顶 |
+| modelId | String? | 绑定模型（空=跟随全局默认） |
+| characterId | Long? | 关联角色卡（空=无角色，用全局主身份） |
+| systemPrompt | String? | 对话级系统提示（覆盖角色卡） |
+| charRemark | String? | 对话内备注（覆盖角色名显示） |
+| charName / charAvatar / charDescription / charGreeting | String? | 角色信息快照（继承自主角色卡，可对话内二次编辑） |
+| charThinkingEnabled | Boolean | 对话级思考开关 |
+| userName / userAvatar / userDescription | String? | 用户身份快照 |
 | createdAt / updatedAt | Long | 时间戳 |
 
 **messages**
@@ -58,38 +68,73 @@
 | reasoningContent | String? | 思考过程 |
 | model | String? | 模型 |
 | finishReason | String? | stop / length |
-| promptTokens | Int? | 提问 token |
-| completionTokens | Int? | 回答 token |
-| totalTokens | Int? | 总 token |
-| reasoningTokens | Int? | 推理 token |
-| promptCacheHitTokens | Int? | 缓存命中 |
-| promptCacheMissTokens | Int? | 缓存未命中 |
+| promptTokens / completionTokens / totalTokens / reasoningTokens | Int? | token 统计 |
+| promptCacheHitTokens / promptCacheMissTokens | Int? | 缓存命中 / 未命中 |
 | createdAt | Long | 时间戳 |
 
-**model_entity**
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| id | String PK | 模型 ID |
-| name | String | 显示名称 |
-| description | String? | 描述 |
-| systemPrompt | String? | 配套提示词 |
-| isDefault | Boolean | 默认模型 |
-
-**character**
+**characters**
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | Long PK 自增 | |
 | name | String | 角色名 |
+| remark | String? | 主卡备注（通讯录/列表优先于 name 显示） |
 | avatar | String? | 头像 |
 | description | String? | 描述 |
 | systemPrompt | String? | 系统提示词 |
 | greeting | String? | 开场白 |
-| userAvatar | String? | 用户头像 |
-| userName | String? | 用户身份名 |
-| userDescription | String? | 用户身份描述 |
+| userName / userAvatar / userDescription | String? | 用户身份 |
+| model_id | String? | 绑定模型（空=跟随全局） |
+| thinking_enabled | Boolean | 思考开关 |
 | createdAt / updatedAt | Long | 时间戳 |
+
+**raw_replies（原始数据层 · 引擎写入）**
+
+模型原始回复，面向 API 上下文 / 缓存命中，不直接展示给用户。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | String PK (UUID) | |
+| conversationId | String | 所属对话 |
+| content | String | 原始回复正文 |
+| reasoningContent | String? | 思考过程 |
+| promptTokens / completionTokens / totalTokens / reasoningTokens | Int? | token 统计 |
+| promptCacheHitTokens / promptCacheMissTokens | Int? | 缓存命中 / 未命中 |
+| isError | Boolean | 是否为错误回复 |
+| createdAt | Long | 时间戳 |
+
+**behaviors（行为数据层 · 引擎写入）**
+
+`ReplyAnalyzer` 把一条 `RawReply` 分解为多条 `Behavior`（多句 + 动作 + 停顿），面向用户展示；经 `rawId` 锚定来源原始回复。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | String PK (UUID) | |
+| rawId | String FK | 来源 raw_replies.id |
+| order | Int | 同条回复内行为顺序 |
+| type | String | 行为类型（SPEECH / ACTION 等） |
+| content | String? | 行为内容（如本句文本） |
+| excuTime | Long | 计划执行（推送）时间戳，支持分时推送 |
+| completed | Boolean | 是否已执行 |
+| isRead | Boolean | 是否已读 |
+
+## 对话处理引擎（行为机）运行逻辑
+
+把「对话智能处理」从 `ChatViewModel` 抽成独立纯 Kotlin 模块 `com.anchat.engine`（仅依赖 stdlib + coroutines，不 import android / androidx / ui / data），与对话侧经三个 spi 接缝解耦：
+
+- `RequestSink` —— 真正发起 API 请求
+- `PersistenceSink` —— 真正落库（raw_replies / behaviors / messages）
+- `EngineSink` —— 向 UI 发渲染事件
+
+一次发送的 5 步数据流：
+
+1. `ChatViewModel.send()` 采集输入 → 建/取对话 → 落用户消息 → 构造 `ConversationContext`（含 system 提示、模型凭证），调用 `engine.send(TurnInput, context)`（fire-and-forget，不阻塞 UI）。
+2. 引擎 `RequestBuilder` 拼请求 → `RequestSink.send()` 拿回 `RawReply`（原始回复）。
+3. `PersistenceSink.persistRaw(raw)` 写入 **raw_replies** 表（供 API 上下文 / 缓存命中）。
+4. `ReplyAnalyzer.analyze(raw)` 一次性分解为 `BehaviorTable`（多条 Behavior：说什么话 / 做什么事 / 句间停顿）；`persistBehaviors(table)` 写入 **behaviors** 表，保留 raw ↔ behavior 映射。
+5. `BehaviorScheduler` 按 `excuTime` 派发：遍历 `BehaviorTable`，先 `delay(停顿)` 再经 `EngineSink.emit(EngineEvent.AssistantMessage)` 推给 UI；同时 `persistAssistant` 落 messages 表、更新对话 preview；`ChatViewModel` 经 `engineEvents` 收 `EngineEvent` 渲染气泡。
+
+分层结果：`RawReply`（模型面向）与 `BehaviorTable`（用户面向）双数据并存、可互查；`ChatViewModel` 退化为「输入采集 + 引擎驱动 + 结果落库渲染」的薄适配层。
 
 ## 项目结构
 
@@ -97,9 +142,16 @@
 app/src/main/java/com/anchat/
 ├── AnChatApplication.kt
 ├── MainActivity.kt
+├── engine/              # 对话处理引擎（纯 Kotlin，与 android 解耦）
+│   ├── core/            # ConversationEngine 门面 + contract
+│   ├── sender/          # RequestBuilder
+│   ├── analyzer/        # ReplyAnalyzer（RawReply→BehaviorTable）
+│   ├── scheduler/       # BehaviorScheduler（分时派发）
+│   └── spi/            # RequestSink / PersistenceSink / EngineSink 接缝
 ├── data/
 │   ├── config/          # AppConfig + ConfigManager
 │   ├── local/           # Room: DB, DAO, Entity
+│   ├── engine/          # 引擎三接缝真实现 + raw_replies/behaviors 实体
 │   ├── remote/          # DeepSeekApi + ChatModels
 │   └── repository/      # Chat / Local / Settings
 ├── ui/

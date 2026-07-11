@@ -1,6 +1,7 @@
 package com.anchat.ui.history
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -64,6 +66,7 @@ import kotlinx.coroutines.launch
 fun HistoryScreen(navController: NavHostController) {
     val viewModel: HistoryViewModel = viewModel()
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    val unread by viewModel.unread.collectAsStateWithLifecycle()
     val menuExpanded = remember { mutableStateOf(false) }
 
     Scaffold(
@@ -112,6 +115,7 @@ fun HistoryScreen(navController: NavHostController) {
                 items(conversations, key = { it.id }) { conv ->
                     ConversationItem(
                         conversation = conv,
+                        unreadCount = unread[conv.id] ?: 0,
                         onClick = { navController.navigate("chat/${conv.id}") },
                         onPin = { viewModel.togglePin(conv.id, !conv.isPinned) },
                         onDelete = { viewModel.delete(conv.id) }
@@ -125,6 +129,7 @@ fun HistoryScreen(navController: NavHostController) {
 @Composable
 private fun ConversationItem(
     conversation: Conversation,
+    unreadCount: Int = 0,
     onClick: () -> Unit,
     onPin: () -> Unit,
     onDelete: () -> Unit
@@ -170,7 +175,8 @@ private fun ConversationItem(
 
         // 前景内容（可左滑）
         Surface(
-            color = MaterialTheme.colorScheme.background,
+            color = if (conversation.isPinned) MaterialTheme.colorScheme.surfaceVariant
+                    else MaterialTheme.colorScheme.background,
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { IntOffset(offset.value.toInt(), 0) }
@@ -192,6 +198,7 @@ private fun ConversationItem(
         ) {
             ConversationRowContent(
                 conversation = conversation,
+                unreadCount = unreadCount,
                 onClick = onClick
             )
         }
@@ -201,13 +208,15 @@ private fun ConversationItem(
 @Composable
 private fun ConversationRowContent(
     conversation: Conversation,
+    unreadCount: Int = 0,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .background(MaterialTheme.colorScheme.background)
+            .background(if (conversation.isPinned) MaterialTheme.colorScheme.surfaceVariant
+                        else MaterialTheme.colorScheme.background)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -218,18 +227,31 @@ private fun ConversationRowContent(
         // 头像（首字母色块）：按「原名」展示与配色，备注不影响头像
         val avatarName = conversation.charName?.takeIf { it.isNotBlank() } ?: conversation.title
         val avatarColor = avatarColor(avatarName)
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(avatarColor),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = avatarInitial(avatarName),
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium
-            )
+        Box(modifier = Modifier.size(48.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(avatarColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = avatarInitial(avatarName),
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+            // 未读红点（头像右上角）
+            if (unreadCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = 42.dp, y = (-6).dp)
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE54D42))
+                        .border(1.5.dp, MaterialTheme.colorScheme.background, CircleShape)
+                )
+            }
         }
 
         Spacer(Modifier.width(12.dp))

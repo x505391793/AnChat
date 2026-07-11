@@ -45,8 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.anchat.ui.theme.avatarColor
-import com.anchat.ui.theme.avatarInitial
+import com.anchat.ui.theme.CharacterAvatar
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -125,21 +124,13 @@ fun CharacterCardScreen(navController: NavHostController, characterId: Long) {
             ) {
                 // 名片头部：头像 + 名称 + 简介（微信式资料页头部）
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 头像：按「原名」展示与配色
-                    val avatarColor = avatarColor(c.name)
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(avatarColor),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = avatarInitial(c.name),
-                            color = Color.White,
-                            style = MaterialTheme.typography.headlineSmall
-                        )
-                    }
+                    // 头像：有上传图显示图片，否则按「原名」首字母+配色（默认头像）
+                    CharacterAvatar(
+                        name = c.name,
+                        avatarPath = c.avatar,
+                        size = 64.dp,
+                        corner = 10.dp
+                    )
                     Spacer(Modifier.width(16.dp))
                     Column {
                         Text(

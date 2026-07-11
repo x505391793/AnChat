@@ -15,7 +15,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -29,8 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
-import com.anchat.ui.theme.avatarColor
-import com.anchat.ui.theme.avatarInitial
+import com.anchat.ui.theme.CharacterAvatar
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -67,6 +69,8 @@ fun ContactsScreen(navController: NavHostController) {
         // 扁平化为「字母头 / 联系人」行，便于手动实现吸顶
         val rows = remember(sections) {
             buildList<ContactRow> {
+                // 顶部固定入口「新的朋友」：不参与拼音排序，始终置顶
+                add(ContactRow.NewFriend)
                 sections.forEach { (letter, list) ->
                     add(ContactRow.Header(letter))
                     list.forEach { add(ContactRow.Item(it)) }
@@ -106,12 +110,16 @@ fun ContactsScreen(navController: NavHostController) {
                 items(
                     rows, key = {
                         when (it) {
+                            is ContactRow.NewFriend -> "new_friend"
                             is ContactRow.Header -> "hdr_${it.letter}"
                             is ContactRow.Item -> "item_${it.char.id}"
                         }
                     }) { row ->
                     when (row) {
-                        is ContactRow.Header -> SectionHeader(row.letter)
+                        is ContactRow.NewFriend -> NewFriendRow(
+                            onClick = { navController.navigate("character/create") }
+                        )
+                        is ContactRow.Header -> LetterHeader(row.letter)
                         is ContactRow.Item -> CharacterItem(
                             character = row.char, onClick = {
                                 navController.navigate("character/${row.char.id}")
@@ -140,21 +148,22 @@ fun ContactsScreen(navController: NavHostController) {
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .padding(padding)
                 ) {
-                    SectionHeader(stickyLetter)
+                    LetterHeader(stickyLetter)
                 }
             }
         }
     }
 }
 
-/** 通讯录列表行：字母分区头 或 单个联系人 */
+/** 通讯录列表行：顶部固定入口 / 字母分区头 / 单个联系人 */
 private sealed interface ContactRow {
+    data object NewFriend : ContactRow
     data class Header(val letter: String) : ContactRow
     data class Item(val char: CharacterEntity) : ContactRow
 }
 
 @Composable
-private fun SectionHeader(letter: String) {
+private fun LetterHeader(letter: String) {
     Text(
         text = letter,
         style = MaterialTheme.typography.bodyMedium,
@@ -164,6 +173,40 @@ private fun SectionHeader(letter: String) {
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(horizontal = 12.dp, vertical = 4.dp)
     )
+}
+
+@Composable
+private fun NewFriendRow(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Filled.PersonAdd,
+                contentDescription = null,
+                tint = Color.White
+            )
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        Text(
+            "新的朋友",
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 @Composable
@@ -179,21 +222,13 @@ private fun CharacterItem(
     ) {
         // 名称：备注优先，其次角色名（仅用于文字标签）
         val displayName = character.remark?.takeIf { it.isNotBlank() } ?: character.name
-        // 头像：按「原名」展示与配色，备注不影响头像
-        val avatarColor = avatarColor(character.name)
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(avatarColor),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = avatarInitial(character.name),
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium
-            )
-        }
+        // 头像：有上传图显示图片，否则按「原名」首字母+配色（默认头像）
+        CharacterAvatar(
+            name = character.name,
+            avatarPath = character.avatar,
+            size = 48.dp,
+            corner = 8.dp
+        )
 
         Spacer(Modifier.width(12.dp))
 

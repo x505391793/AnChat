@@ -35,5 +35,6 @@ data class Message(
     @ColumnInfo(name = "reasoning_tokens") val reasoningTokens: Int? = null,
     @ColumnInfo(name = "prompt_cache_hit_tokens") val promptCacheHitTokens: Int? = null,
     @ColumnInfo(name = "prompt_cache_miss_tokens") val promptCacheMissTokens: Int? = null,
+    @ColumnInfo(name = "is_read") val isRead: Boolean = false, // 未读红点依据；助手消息默认未读
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
 )

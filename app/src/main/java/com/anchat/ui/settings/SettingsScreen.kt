@@ -28,8 +28,6 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -49,9 +47,8 @@ fun SettingsScreen(navController: NavHostController) {
     val viewModel: SettingsViewModel = viewModel()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val configDisplayPath by viewModel.configDisplayPath.collectAsStateWithLifecycle()
-    val defaultUserName by viewModel.defaultUserName.collectAsStateWithLifecycle()
-    val defaultUserDesc by viewModel.defaultUserDescription.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val notificationsEnabled by viewModel.notificationsEnabled.collectAsStateWithLifecycle()
 
     val directoryPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -140,6 +137,45 @@ fun SettingsScreen(navController: NavHostController) {
                 }
             }
 
+            // ─── 通知 ───────────────────────────────
+            item {
+                SectionTitle("通知")
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "消息通知",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "收到新消息时弹出系统通知",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Switch(
+                            checked = notificationsEnabled,
+                            onCheckedChange = viewModel::setNotificationsEnabled,
+                            colors = SwitchDefaults.colors(
+                                checkedTrackColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                    }
+                }
+            }
+
             // ─── 模型管理 ───────────────────────────
             item {
                 SectionTitle("模型")
@@ -168,52 +204,6 @@ fun SettingsScreen(navController: NavHostController) {
                                 "添加 / 删除模型，配置各自的 API Key 与地址",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                }
-            }
-
-            // ─── 主身份 ───────────────────────────────
-            item {
-                SectionTitle("主身份")
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(
-                            "角色卡未设置用户身份时，使用此身份进行对话。",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        TextField(
-                            value = defaultUserName,
-                            onValueChange = viewModel::onUserNameChange,
-                            placeholder = { Text("姓名", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = fieldColors()
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        TextField(
-                            value = defaultUserDesc,
-                            onValueChange = viewModel::onUserDescChange,
-                            placeholder = { Text("身份描述", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            minLines = 2,
-                            colors = fieldColors()
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            Text(
-                                "保存身份",
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable { viewModel.saveIdentity() }
                             )
                         }
                     }
@@ -270,17 +260,3 @@ private fun SectionTitle(text: String) {
         modifier = Modifier.padding(bottom = 8.dp)
     )
 }
-
-@Composable
-private fun fieldColors() = TextFieldDefaults.colors(
-    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-    focusedIndicatorColor = Color.Transparent,
-    unfocusedIndicatorColor = Color.Transparent,
-    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-    cursorColor = MaterialTheme.colorScheme.primary,
-    focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
-)

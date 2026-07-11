@@ -11,8 +11,11 @@ import com.anchat.AnChatApplication
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Conversation
 import com.anchat.data.local.entity.Message
-import com.anchat.data.remote.model.ChatCompletionResponse
-import com.anchat.data.remote.model.ChatMessageDto
+import com.anchat.engine.core.ConversationEngine
+import com.anchat.engine.core.contract.ConversationContext
+import com.anchat.engine.core.contract.EngineEvent
+import com.anchat.engine.core.contract.TurnInput
+import com.anchat.push.ActiveConversation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,10 +34,11 @@ class ChatViewModel(
 ) : AndroidViewModel(app) {
 
     private val anchatApp = app as AnChatApplication
-    private val chatRepo = anchatApp.chatRepository
     private val localRepo = anchatApp.localRepository
     private val settingsRepo = anchatApp.settingsRepository
     private val configManager = anchatApp.configManager
+    private val engine = anchatApp.engine
+    private val engineEvents = anchatApp.engineEvents
 
     /** 当前对话的真实 id（新建对话创建后才非空，供头像点击进编辑页） */
     private var conversationId: Long? = if (convId >= 0) convId else null
@@ -95,6 +99,24 @@ class ChatViewModel(
                 }
             }
         }
+        // 收集引擎渲染事件（助手消息 / 错误）更新 UI
+        viewModelScope.launch {
+            engineEvents.collect { event ->
+                when (event) {
+                    is EngineEvent.AssistantMessage -> {
+                        _messages.value = _messages.value +
+                            ChatMessage("assistant", event.record.content, event.record.reasoningContent)
+                        _isLoading.value = false
+                    }
+                    is EngineEvent.Error -> {
+                        _messages.value = _messages.value +
+                            ChatMessage("assistant", "❌ ${event.message}")
+                        _error.value = event.message
+                        _isLoading.value = false
+                    }
+                }
+            }
+        }
         if (convId >= 0) {
             viewModelScope.launch {
                 val stored = localRepo.getMessages(convId).map {
@@ -106,6 +128,9 @@ class ChatViewModel(
                 val character = if (charId >= 0) localRepo.getCharacter(charId) else null
                 setCharacter(character)
                 _title.value = character?.name ?: "AnChat"
+                // 打开既有会话：标记当前会话 + 清未读（红点消失）
+                ActiveConversation.set(convId)
+                localRepo.markRead(convId)
                 // _conversationId 已是 convId，上面的 observe 会接管 profile
             }
         }
@@ -122,6 +147,7 @@ class ChatViewModel(
                         val newId = localRepo.createConversation(conv)
                         conversationId = newId
                         _conversationId.value = newId
+                        ActiveConversation.set(newId)
                         localRepo.insertMessage(
                             Message(
                                 conversationId = newId,
@@ -129,6 +155,7 @@ class ChatViewModel(
                                 content = greeting
                             )
                         )
+                        localRepo.markRead(newId) // 开场白立即展示，视为已读，避免列表误显红点
                         _messages.value = listOf(ChatMessage("assistant", greeting))
                         applyProfile(conv, character)
                     }
@@ -162,6 +189,9 @@ class ChatViewModel(
         val userDescription = conv?.userDescription?.ifBlank { null }
             ?: character?.userDescription?.ifBlank { null }
             ?: configManager.getDefaultUserDescription().ifBlank { null }
+        // 性别 / 微信号来自全局主身份（角色卡 / 对话快照均无单独字段）
+        val userGender = configManager.getDefaultUserGender().ifBlank { null }
+        val userWechatId = configManager.getDefaultUserWechatId().ifBlank { null }
         return ConversationProfile(
             charRemark = charRemark,
             charName = charName,
@@ -172,6 +202,8 @@ class ChatViewModel(
             userName = userName,
             userAvatar = conv?.userAvatar ?: character?.userAvatar ?: configManager.getDefaultUserAvatar().ifBlank { null },
             userDescription = userDescription,
+            userGender = userGender,
+            userWechatId = userWechatId,
             modelId = conv?.modelId ?: character?.modelId,
             thinkingEnabled = conv?.charThinkingEnabled ?: character?.thinkingEnabled ?: false
         )
@@ -199,7 +231,8 @@ class ChatViewModel(
     )
 
     /** 同步建立 profile（创建对话时调用，保证首条请求的 system 提示立即生效） */
-    private fun applyProfile(conv: Conversation, character: CharacterEntity?) {
+    private fun applyProfile(conv: Conversation?, character: CharacterEntity?) {
+        if (conv == null) return
         val p = profileOf(conv, character)
         _profile.value = p
         _title.value = p.charRemark ?: p.charName
@@ -219,10 +252,14 @@ class ChatViewModel(
         }
 
         val userName = profile.userName?.ifBlank { null }
+        val userGender = profile.userGender?.ifBlank { null }
+        val userWechatId = profile.userWechatId?.ifBlank { null }
         val userDesc = profile.userDescription?.ifBlank { null }
-        if (userName != null || userDesc != null) {
+        if (userName != null || userGender != null || userWechatId != null || userDesc != null) {
             val identityParts = mutableListOf<String>()
             if (userName != null) identityParts.add("你的对话对象名叫${userName}。")
+            if (userGender != null) identityParts.add("其性别为${userGender}。")
+            if (userWechatId != null) identityParts.add("其微信号是${userWechatId}。")
             if (userDesc != null) identityParts.add(userDesc)
             parts.add(identityParts.joinToString("\n"))
         }
@@ -242,10 +279,7 @@ class ChatViewModel(
             return
         }
 
-        // 1. 显示用户消息
-        _messages.value = _messages.value + ChatMessage("user", text)
-
-        // 2. 解析模型与对应凭证（key / url 绑定在模型上）
+        // 解析模型与对应凭证（key / url 绑定在模型上）
         val modelId = _profile.value?.modelId ?: currentCharacter?.modelId
             ?: settingsRepo.getDefaultModelId() ?: _defaultModel.value
         if (modelId.isBlank()) {
@@ -265,104 +299,50 @@ class ChatViewModel(
             return
         }
 
-        // 3. 开始请求
-        val model = modelId
+        // 进入异步前先锁住 loading，防止快速连点导致重复发送
         _isLoading.value = true
         _error.value = null
 
+        // 创建/获取对话（VM 持有 conversationId 供导航），并把用户消息落库
         viewModelScope.launch {
-            try {
-                // DB: 创建/获取对话（首条消息时把主角色卡身份快照进 conversation）
-                val convId = conversationId ?: run {
-                    val conv = snapshotFrom(
-                        currentCharacter,
-                        currentCharacter?.name ?: "新对话",
-                        currentCharacter?.id ?: -1L
-                    )
-                    val newId = localRepo.createConversation(conv)
-                    conversationId = newId
-                    _conversationId.value = newId
-                    applyProfile(conv, currentCharacter)
-                    newId
-                }
-
-                // DB: 保存用户消息
-                try {
-                    localRepo.insertMessage(
-                        Message(conversationId = convId, role = "user", content = text)
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "保存用户消息失败: ${e.message}")
-                }
-
-                // 构造请求消息列表
-                val systemPrompt = buildSystemPrompt()
-                val chatMessages = mutableListOf<ChatMessageDto>()
-
-                if (systemPrompt != null) {
-                    chatMessages.add(ChatMessageDto(role = "system", content = systemPrompt))
-                }
-
-                _messages.value
-                    .filter { it.role == "user" || it.role == "assistant" }
-                    .forEach { chatMessages.add(ChatMessageDto(role = it.role, content = it.content)) }
-
-                // 调用 API
-                val response: ChatCompletionResponse = chatRepo.sendChat(apiKey, apiUrl ?: "", model, chatMessages)
-
-                // 解析响应
-                val choice = response.choices.firstOrNull()
-                val content = choice?.message?.content ?: ""
-                val reasoningContent = choice?.message?.reasoningContent
-                val finishReason = choice?.finishReason
-                val usage = response.usage
-
-                // 显示
-                _messages.value = _messages.value + ChatMessage(
-                    role = "assistant",
-                    content = content,
-                    reasoningContent = reasoningContent
+            val convId = conversationId ?: run {
+                val conv = snapshotFrom(
+                    currentCharacter,
+                    currentCharacter?.name ?: "新对话",
+                    currentCharacter?.id ?: -1L
                 )
-
-                // DB: 保存 assistant 消息
-                try {
-                    localRepo.insertMessage(
-                        Message(
-                            conversationId = convId,
-                            role = "assistant",
-                            content = content,
-                            reasoningContent = reasoningContent,
-                            model = model,
-                            finishReason = finishReason,
-                            promptTokens = usage?.promptTokens,
-                            completionTokens = usage?.completionTokens,
-                            totalTokens = usage?.totalTokens,
-                            reasoningTokens = usage?.completionTokensDetails?.reasoningTokens,
-                            promptCacheHitTokens = usage?.promptCacheHitTokens,
-                            promptCacheMissTokens = usage?.promptCacheMissTokens
-                        )
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "保存回复消息失败: ${e.message}")
-                }
-
-                // DB: 更新 preview
-                try {
-                    localRepo.updatePreview(convId, content.take(50))
-                } catch (e: Exception) {
-                    Log.w(TAG, "更新 preview 失败: ${e.message}")
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "发送异常: ${e.message}", e)
-                _error.value = e.message ?: "发送失败"
-                _messages.value = _messages.value + ChatMessage(
-                    role = "assistant",
-                    content = "❌ ${e.message ?: "发送失败"}"
-                )
-            } finally {
-                _isLoading.value = false
+                val newId = localRepo.createConversation(conv)
+                conversationId = newId
+                _conversationId.value = newId
+                ActiveConversation.set(newId)
+                newId
             }
+
+            // 对话（可能刚创建）已落库：据其建立 profile，
+            // 确保 system 提示 / 模型凭证在「首条消息」即生效
+            // （旧写法在 applyProfile 之前取提示词会拿到 null，导致首条消息漏提示词）
+            val conv = localRepo.getConversation(convId)
+            applyProfile(conv, currentCharacter)
+            val systemPrompt = buildSystemPrompt()
+
+            try {
+                localRepo.insertMessage(
+                    Message(conversationId = convId, role = "user", content = text)
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "保存用户消息失败: ${e.message}")
+            }
+            _messages.value = _messages.value + ChatMessage("user", text)
+
+            // 交给对话处理机（fire-and-forget：内部在自有 scope 执行，不阻塞此处）
+            val context = ConversationContext(
+                conversationId = convId.toString(),
+                systemPrompt = systemPrompt,
+                modelId = modelId,
+                apiKey = apiKey,
+                apiUrl = apiUrl ?: ""
+            )
+            engine.send(TurnInput(text), context)
         }
     }
 
@@ -373,7 +353,14 @@ class ChatViewModel(
     fun startNewConversation() {
         conversationId = null
         _conversationId.value = null
+        ActiveConversation.set(null)
         _messages.value = emptyList()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // 离开聊天页：清空「当前打开的会话」，使后续消息能正常弹通知
+        ActiveConversation.set(null)
     }
 
     companion object {

@@ -49,6 +49,17 @@ class ConfigManager(private val context: Context) {
         persist { cfg -> cfg.copy(themeMode = mode) }
     }
 
+    // ─── 通知推送开关 ───────────────────────────
+    private val _notificationsEnabled = MutableStateFlow(load().notificationsEnabled)
+    val notificationsEnabledFlow: StateFlow<Boolean> = _notificationsEnabled.asStateFlow()
+
+    fun getNotificationsEnabled(): Boolean = _notificationsEnabled.value
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        _notificationsEnabled.value = enabled
+        persist { cfg -> cfg.copy(notificationsEnabled = enabled) }
+    }
+
     // ─── 模型（含各自的 apiKey / apiUrl） ─────────
     private val _models = MutableStateFlow(load().models)
     val modelsFlow: StateFlow<List<ModelConfig>> = _models.asStateFlow()
@@ -93,6 +104,7 @@ class ConfigManager(private val context: Context) {
         _themeMode.value = cfg.themeMode
         _models.value = cfg.models
         _defaultModelId.value = cfg.defaultModelId
+        _notificationsEnabled.value = cfg.notificationsEnabled
     }
 
     /**
@@ -105,6 +117,7 @@ class ConfigManager(private val context: Context) {
         _themeMode.value = newConfig.themeMode
         _models.value = newConfig.models
         _defaultModelId.value = newConfig.defaultModelId
+        _notificationsEnabled.value = newConfig.notificationsEnabled
     }
 
     /** SAF tree URI if the user picked a custom directory. Null = File mode. */
@@ -208,11 +221,23 @@ class ConfigManager(private val context: Context) {
 
     fun getDefaultUserAvatar(): String = load().defaultUserAvatar
 
-    fun saveDefaultIdentity(userName: String, description: String, avatar: String) {
+    fun getDefaultUserGender(): String = load().defaultUserGender
+
+    fun getDefaultUserWechatId(): String = load().defaultUserWechatId
+
+    fun saveDefaultIdentity(
+        userName: String,
+        description: String,
+        avatar: String,
+        gender: String = "",
+        wechatId: String = ""
+    ) {
         save(load().copy(
             defaultUserName = userName.trim(),
             defaultUserDescription = description.trim(),
-            defaultUserAvatar = avatar.trim()
+            defaultUserAvatar = avatar.trim(),
+            defaultUserGender = gender.trim(),
+            defaultUserWechatId = wechatId.trim()
         ))
     }
 

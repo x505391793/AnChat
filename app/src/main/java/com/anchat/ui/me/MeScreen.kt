@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.anchat.ui.main.LocalApp
+import com.anchat.ui.theme.CharacterAvatar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,6 +41,8 @@ fun MeScreen(navController: NavHostController) {
 
     val userName = configManager.getDefaultUserName().ifBlank { "未设置" }
     val userDesc = configManager.getDefaultUserDescription()
+    val userAvatar = configManager.getDefaultUserAvatar()
+    val wechatId = configManager.getDefaultUserWechatId()
 
     Scaffold(
         topBar = { CenterAlignedTopAppBar(title = { Text("我") }) }
@@ -49,32 +52,25 @@ fun MeScreen(navController: NavHostController) {
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // ── 个人名片（微信式） ──
+            // ── 个人名片（微信式，点进资料编辑） ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
+                    .clickable { navController.navigate("profile/edit") }
                     .padding(20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF07C160)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = userName.firstOrNull()?.toString() ?: "?",
-                        color = Color.White,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                CharacterAvatar(
+                    name = userName,
+                    avatarPath = userAvatar.ifBlank { null },
+                    size = 64.dp,
+                    corner = 8.dp
+                )
 
                 Spacer(Modifier.width(16.dp))
 
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = userName,
                         style = MaterialTheme.typography.titleLarge,
@@ -82,12 +78,21 @@ fun MeScreen(navController: NavHostController) {
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = if (userDesc.isNotBlank()) userDesc
-                        else "微信号：anchat_user",
+                        text = when {
+                            wechatId.isNotBlank() -> "微信号：$wechatId"
+                            userDesc.isNotBlank() -> userDesc
+                            else -> "微信号：anchat_user"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             Spacer(Modifier.height(12.dp))

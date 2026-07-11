@@ -27,6 +27,15 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         _themeMode.value = mode
     }
 
+    // ─── 通知推送开关 ───────────────────────
+    private val _notificationsEnabled = MutableStateFlow(configManager.getNotificationsEnabled())
+    val notificationsEnabled: StateFlow<Boolean> = _notificationsEnabled.asStateFlow()
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        configManager.setNotificationsEnabled(enabled)
+        _notificationsEnabled.value = enabled
+    }
+
     // ─── Config path ───────────────────────────────────
     private val _configDisplayPath = MutableStateFlow(repo.getConfigDisplayPath())
     val configDisplayPath: StateFlow<String> = _configDisplayPath.asStateFlow()
@@ -43,25 +52,6 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         repo.resetToDefault()
         _configDisplayPath.value = repo.getConfigDisplayPath()
         _message.value = "已恢复默认路径"
-    }
-
-    // ─── 主身份 ───────────────────────────────────────
-    private val _defaultUserName = MutableStateFlow(configManager.getDefaultUserName())
-    val defaultUserName: StateFlow<String> = _defaultUserName.asStateFlow()
-
-    private val _defaultUserDescription = MutableStateFlow(configManager.getDefaultUserDescription())
-    val defaultUserDescription: StateFlow<String> = _defaultUserDescription.asStateFlow()
-
-    fun onUserNameChange(text: String) { _defaultUserName.value = text }
-    fun onUserDescChange(text: String) { _defaultUserDescription.value = text }
-
-    fun saveIdentity() {
-        configManager.saveDefaultIdentity(
-            userName = _defaultUserName.value,
-            description = _defaultUserDescription.value,
-            avatar = configManager.getDefaultUserAvatar()  // 头像暂不处理
-        )
-        _message.value = "主身份已保存"
     }
 
     fun clearMessage() { _message.value = null }

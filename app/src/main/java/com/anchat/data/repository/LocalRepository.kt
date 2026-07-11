@@ -7,6 +7,7 @@ import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Conversation
 import com.anchat.data.local.entity.Message
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 class LocalRepository(
     private val conversationDao: ConversationDao,
@@ -30,6 +31,9 @@ class LocalRepository(
     suspend fun updateConversation(conv: Conversation) = conversationDao.update(conv)
 
     suspend fun insertMessage(message: Message): Long = messageDao.insert(message)
+    suspend fun markRead(conversationId: Long) = messageDao.markReadByConversation(conversationId)
+    fun observeUnread(): Flow<Map<Long, Int>> =
+        messageDao.unreadByConversation().map { list -> list.associate { it.conversationId to it.count } }
     suspend fun renameConversation(id: Long, title: String) = conversationDao.rename(id, title)
     suspend fun updatePreview(id: Long, preview: String) = conversationDao.updatePreview(id, preview)
     suspend fun setStar(id: Long, isStar: Boolean) = conversationDao.setStar(id, isStar)

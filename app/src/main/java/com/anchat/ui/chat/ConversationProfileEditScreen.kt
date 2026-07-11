@@ -37,6 +37,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.anchat.data.local.entity.Conversation
+import com.anchat.ui.contacts.AvatarUploadBox
+import com.anchat.ui.contacts.GroupCard
+import com.anchat.ui.contacts.SectionHeader
+import com.anchat.ui.contacts.rememberAvatarPicker
 import com.anchat.ui.main.LocalApp
 import kotlinx.coroutines.launch
 
@@ -45,6 +49,7 @@ import kotlinx.coroutines.launch
  * 从聊天页点头像进入：AI 头像 → part="ai" 编辑「角色部分」，
  * 自己头像 → part="self" 编辑「用户部分」。
  * 只读写当前 conversation 的快照列，不影响主角色卡。
+ * UI 与「新增/编辑角色卡」页保持一致。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +81,9 @@ fun ConversationProfileEditScreen(
 
     val isAi = part == "ai"
     val scope = rememberCoroutineScope()
+
+    // 选择本地图片 → 复制到应用内部存储（复用共享组件）
+    val pickAvatar = rememberAvatarPicker { charAvatar = it }
 
     // 加载对话快照并回填（取有效值，回退主角色卡 / 全局主身份）
     LaunchedEffect(convId) {
@@ -156,7 +164,8 @@ fun ConversationProfileEditScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             if (error != null) {
                 Text(
@@ -167,143 +176,145 @@ fun ConversationProfileEditScreen(
             }
 
             if (isAi) {
-                Text("角色信息", style = MaterialTheme.typography.titleMedium)
-
-                OutlinedTextField(
-                    value = charName,
-                    onValueChange = {
-                        charName = it
-                        if (error != null) error = null
-                    },
-                    label = { Text("角色名称 *") },
-                    singleLine = true,
-                    isError = isAi && charName.isBlank(),
-                    modifier = Modifier.fillMaxWidth()
+                // ── 头像上传框（顶部居中，与角色卡页一致） ──
+                AvatarUploadBox(
+                    name = charName.ifBlank { "角" },
+                    avatarPath = charAvatar.ifBlank { null },
+                    onPick = pickAvatar,
+                    onClear = { charAvatar = "" }
+                )
+                Text(
+                    text = if (charAvatar.isBlank()) "点击上传头像" else "点击更换头像",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                OutlinedTextField(
-                    value = charAvatar,
-                    onValueChange = { charAvatar = it },
-                    label = { Text("角色头像（路径或 URL，可选）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = charDescription,
-                    onValueChange = { charDescription = it },
-                    label = { Text("角色简介（可选）") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // 备注：在对话列表 / 顶栏优先显示的名（不影响主角色卡）
-                OutlinedTextField(
-                    value = charRemark,
-                    onValueChange = { charRemark = it },
-                    label = { Text("备注（可选，显示在对话列表与顶栏）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Text("对话设置", style = MaterialTheme.typography.titleMedium)
-
-                val selectedModelName =
-                    models.firstOrNull { it.id == modelId || it.name == modelId }?.name
-                        ?: "默认（跟随全局）"
-                ExposedDropdownMenuBox(
-                    expanded = modelExpanded,
-                    onExpandedChange = { modelExpanded = it },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedTextField(
-                        value = selectedModelName,
-                        onValueChange = {},
-                        readOnly = true,
-                        singleLine = true,
-                        label = { Text("对话模型") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    DropdownMenu(
-                        expanded = modelExpanded,
-                        onDismissRequest = { modelExpanded = false }
+                // ── 角色信息 ──
+                SectionHeader("角色信息")
+                GroupCard {
+                    // 名称 + 备注：同一行
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("默认（跟随全局）") },
-                            onClick = {
-                                modelId = null
-                                modelExpanded = false
-                            }
+                        OutlinedTextField(
+                            value = charName,
+                            onValueChange = {
+                                charName = it
+                                if (error != null) error = null
+                            },
+                            label = { Text("角色名称 *") },
+                            singleLine = true,
+                            isError = charName.isBlank(),
+                            modifier = Modifier.weight(1f)
                         )
-                        models.forEach { m ->
+                        OutlinedTextField(
+                            value = charRemark,
+                            onValueChange = { charRemark = it },
+                            label = { Text("备注（可选）") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = systemPrompt,
+                        onValueChange = {
+                            systemPrompt = it
+                            if (error != null) error = null
+                        },
+                        label = { Text("系统提示词 *") },
+                        minLines = 4,
+                        isError = systemPrompt.isBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = charGreeting,
+                        onValueChange = { charGreeting = it },
+                        label = { Text("开场白（可选，进入对话时自动发送）") },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // ── 模型设置 ──
+                SectionHeader("模型设置")
+                GroupCard {
+                    val selectedModelName =
+                        models.firstOrNull { it.id == modelId || it.name == modelId }?.name
+                            ?: "默认（跟随全局）"
+                    ExposedDropdownMenuBox(
+                        expanded = modelExpanded,
+                        onExpandedChange = { modelExpanded = it },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = selectedModelName,
+                            onValueChange = {},
+                            readOnly = true,
+                            singleLine = true,
+                            label = { Text("对话模型") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        DropdownMenu(
+                            expanded = modelExpanded,
+                            onDismissRequest = { modelExpanded = false }
+                        ) {
                             DropdownMenuItem(
-                                text = { Text(m.name) },
+                                text = { Text("默认（跟随全局）") },
                                 onClick = {
-                                    modelId = m.id
+                                    modelId = null
                                     modelExpanded = false
                                 }
                             )
+                            models.forEach { m ->
+                                DropdownMenuItem(
+                                    text = { Text(m.name) },
+                                    onClick = {
+                                        modelId = m.id
+                                        modelExpanded = false
+                                    }
+                                )
+                            }
                         }
                     }
-                }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("思考模式", style = MaterialTheme.typography.bodyLarge)
-                    Switch(
-                        checked = thinkingEnabled,
-                        onCheckedChange = { thinkingEnabled = it }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("思考模式", style = MaterialTheme.typography.bodyLarge)
+                        Switch(
+                            checked = thinkingEnabled,
+                            onCheckedChange = { thinkingEnabled = it }
+                        )
+                    }
+                }
+            } else {
+                // ── 你的身份（与角色卡页「你的身份」卡一致） ──
+                SectionHeader("你的身份")
+                GroupCard {
+                    OutlinedTextField(
+                        value = userName,
+                        onValueChange = { userName = it },
+                        label = { Text("用户姓名（可选）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = userDescription,
+                        onValueChange = { userDescription = it },
+                        label = { Text("用户身份描述（可选）") },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-
-                OutlinedTextField(
-                    value = systemPrompt,
-                    onValueChange = {
-                        systemPrompt = it
-                        if (error != null) error = null
-                    },
-                    label = { Text("系统提示词 *") },
-                    minLines = 4,
-                    isError = isAi && systemPrompt.isBlank(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = charGreeting,
-                    onValueChange = { charGreeting = it },
-                    label = { Text("开场白（可选，进入对话时自动发送）") },
-                    minLines = 2,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            } else {
-                Text("用户身份", style = MaterialTheme.typography.titleMedium)
-
-                OutlinedTextField(
-                    value = userName,
-                    onValueChange = { userName = it },
-                    label = { Text("用户姓名（可选）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = userAvatar,
-                    onValueChange = { userAvatar = it },
-                    label = { Text("用户头像（可选）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                OutlinedTextField(
-                    value = userDescription,
-                    onValueChange = { userDescription = it },
-                    label = { Text("用户身份描述（可选）") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth()
-                )
             }
         }
     }

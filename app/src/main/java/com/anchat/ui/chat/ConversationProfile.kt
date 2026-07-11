@@ -26,6 +26,10 @@ data class ConversationProfile(
     val userAvatar: String?,
     /** 用户在此对话中的身份描述（可选） */
     val userDescription: String?,
+    /** 用户性别（可选，来自全局主身份） */
+    val userGender: String?,
+    /** 用户微信号（可选，来自全局主身份） */
+    val userWechatId: String?,
     /** 该对话使用的模型（null = 跟随全局默认） */
     val modelId: String?,
     /** 是否开启思考模式 */

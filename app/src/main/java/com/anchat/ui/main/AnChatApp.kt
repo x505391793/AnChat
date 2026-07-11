@@ -15,12 +15,22 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.anchat.push.NotificationNavigation
 import com.anchat.ui.theme.AnChatTheme
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -38,6 +48,7 @@ import com.anchat.ui.contacts.ContactsScreen
 import com.anchat.ui.discover.DiscoverScreen
 import com.anchat.ui.history.HistoryScreen
 import com.anchat.ui.me.MeScreen
+import com.anchat.ui.me.ProfileEditScreen
 import com.anchat.ui.settings.ModelManageScreen
 import com.anchat.ui.settings.SettingsScreen
 
@@ -45,7 +56,7 @@ import com.anchat.ui.settings.SettingsScreen
 private val WeChatGreen = Color(0xFF07C160)
 
 sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
-    data object WeChat : Screen("wechat", "微信", Icons.Filled.ChatBubble)
+    data object WeChat : Screen("wechat", "AnChat", Icons.Filled.ChatBubble)
     data object Contacts : Screen("contacts", "通讯录", Icons.Filled.Contacts)
     data object Discover : Screen("discover", "发现", Icons.Filled.Explore)
     data object Me : Screen("me", "我", Icons.Filled.Person)
@@ -76,6 +87,15 @@ fun AnChatAppHost() {
 fun AnChatApp() {
     val navController = rememberNavController()
 
+    // 通知点击带会话 id 进来：组合时跳转到对应聊天，然后清空
+    val pendingNav by NotificationNavigation.target.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingNav) {
+        pendingNav?.let { id ->
+            navController.navigate("chat/$id")
+            NotificationNavigation.set(null)
+        }
+    }
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
@@ -85,6 +105,7 @@ fun AnChatApp() {
         && !currentRoute.startsWith("character")
         && !currentRoute.startsWith("conversation")
         && !currentRoute.startsWith("models")
+        && !currentRoute.startsWith("profile")
         && currentRoute != "settings"
 
     Scaffold(
@@ -141,6 +162,12 @@ fun AnChatApp() {
             }
             composable(Screen.Me.route) {
                 MeScreen(navController = navController)
+            }
+            composable("profile/edit") {
+                ProfileEditScreen(navController = navController)
+            }
+            composable("profile/edit") {
+                ProfileEditScreen(navController = navController)
             }
             composable("settings") {
                 SettingsScreen(navController = navController)
@@ -200,12 +227,31 @@ private fun AnChatBottomBar(navController: NavHostController) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
+    // 任意会话有未读 → 底部「AnChat」栏显示小红点
+    val unread by LocalApp.current.localRepository.observeUnread()
+        .collectAsStateWithLifecycle(initialValue = emptyMap())
+    val hasUnread = unread.values.any { it > 0 }
+
     NavigationBar(
         containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface
     ) {
         items.forEach { screen ->
             NavigationBarItem(
-                icon = { Icon(screen.icon, contentDescription = screen.label) },
+                icon = {
+                    Box {
+                        Icon(screen.icon, contentDescription = screen.label)
+                        if (screen == Screen.WeChat && hasUnread) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = 6.dp, y = (-4).dp)
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFE54D42))
+                            )
+                        }
+                    }
+                },
                 label = { Text(screen.label) },
                 selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
                 onClick = {
