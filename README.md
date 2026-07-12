@@ -9,11 +9,12 @@
 - 2026-07-10：深色模式
 - 2026-07-11：UI 更新（通讯录 / 角色卡 / 个人名片 / 对话列表 / 推送通知）—— 暂时完结一阶段，后续持续调整
 - 2026-07-11：对话处理引擎（行为机）框架接入 + 原始 / 行为两层数据层
+- 2026-07-12：真实对话行为拆解引擎 + API 日志 + 头像/预览/状态机等多项修复
 
 
 ## 进行中
 
-- 行为分时推送 UI（behaviors 表 excuTime 可视化 / 切表交互）
+- 行为分时推送交互打磨（可视化 / 切表编辑）
 - 长期记忆
 
 ## 待实现
@@ -35,7 +36,7 @@
 | 配置 | JSON 文件 |
 | 语言 | Kotlin 2.0.21 / JVM 17 |
 
-## 数据库 (Room v11)
+## 数据库 (Room v18)
 
 > 开发期 `fallbackToDestructiveMigration`：表结构变动直接重建，后续需写 Migration 保数据。模型已移出 Room 存 JSON 配置，无 `models` 表。
 
@@ -101,6 +102,7 @@
 | promptTokens / completionTokens / totalTokens / reasoningTokens | Int? | token 统计 |
 | promptCacheHitTokens / promptCacheMissTokens | Int? | 缓存命中 / 未命中 |
 | isError | Boolean | 是否为错误回复 |
+| kind | String | 来源类型（chat=聊天AI / decomp=行为拆解 / system=系统） |
 | createdAt | Long | 时间戳 |
 
 **behaviors（行为数据层 · 引擎写入）**
@@ -115,8 +117,8 @@
 | type | String | 行为类型（SPEECH / ACTION 等） |
 | content | String? | 行为内容（如本句文本） |
 | excuTime | Long | 计划执行（推送）时间戳，支持分时推送 |
-| completed | Boolean | 是否已执行 |
-| isRead | Boolean | 是否已读 |
+| status | Int | 状态机：0=未到点 / 1=已执行未读 / 2=已读 |
+| conversationId | String | 所属对话（行为按对话隔离，避免串台） |
 
 ## 对话处理引擎（行为机）运行逻辑
 
@@ -130,9 +132,11 @@
 
 1. `ChatViewModel.send()` 采集输入 → 建/取对话 → 落用户消息 → 构造 `ConversationContext`（含 system 提示、模型凭证），调用 `engine.send(TurnInput, context)`（fire-and-forget，不阻塞 UI）。
 2. 引擎 `RequestBuilder` 拼请求 → `RequestSink.send()` 拿回 `RawReply`（原始回复）。
-3. `PersistenceSink.persistRaw(raw)` 写入 **raw_replies** 表（供 API 上下文 / 缓存命中）。
-4. `ReplyAnalyzer.analyze(raw)` 一次性分解为 `BehaviorTable`（多条 Behavior：说什么话 / 做什么事 / 句间停顿）；`persistBehaviors(table)` 写入 **behaviors** 表，保留 raw ↔ behavior 映射。
-5. `BehaviorScheduler` 按 `excuTime` 派发：遍历 `BehaviorTable`，先 `delay(停顿)` 再经 `EngineSink.emit(EngineEvent.AssistantMessage)` 推给 UI；同时 `persistAssistant` 落 messages 表、更新对话 preview；`ChatViewModel` 经 `engineEvents` 收 `EngineEvent` 渲染气泡。
+3. `PersistenceSink.persistRaw(raw)` 写入 **raw_replies** 表（含 `kind` 区分来源；供 API 上下文 / 缓存命中 / 全量审计）。
+4. 行为拆解分两路：
+   - **真实对话**（开启且配置了管理 AI）：`BehaviorDecomposer` 把整段 `RawReply` 二次包装请求发给「真实对话管理 AI」，由其按微信拟人语义拆解为多条 `Behavior`（speech / emotion / movement），经 `persistBehaviors` 写入 **behaviors** 表；原始整段回复仅入库供上下文，不直接展示。
+   - **非真实对话**：`ReplyAnalyzer.analyze(raw)` 直出单条 `Behavior`。
+5. `BehaviorScheduler` 按 `excuTime` 分时派发：到点翻 `status`（0→1）并经 `EngineSink.emit(EngineEvent.BehaviorDue)` **显式**推给 UI（取代旧版依赖 Room Flow 失效重查的不可靠方案）；同时 `persistAssistant` 落 messages 表、更新对话 preview 为最后一条可见说话；`ChatViewModel` 经 `engineEvents` 收事件渲染气泡。
 
 分层结果：`RawReply`（模型面向）与 `BehaviorTable`（用户面向）双数据并存、可互查；`ChatViewModel` 退化为「输入采集 + 引擎驱动 + 结果落库渲染」的薄适配层。
 
@@ -143,11 +147,13 @@ app/src/main/java/com/anchat/
 ├── AnChatApplication.kt
 ├── MainActivity.kt
 ├── engine/              # 对话处理引擎（纯 Kotlin，与 android 解耦）
+│   ├── decomposer/      # BehaviorDecomposer（真实对话二次拆解）
 │   ├── core/            # ConversationEngine 门面 + contract
 │   ├── sender/          # RequestBuilder
 │   ├── analyzer/        # ReplyAnalyzer（RawReply→BehaviorTable）
 │   ├── scheduler/       # BehaviorScheduler（分时派发）
 │   └── spi/            # RequestSink / PersistenceSink / EngineSink 接缝
+├── service/             # 前台推送服务
 ├── data/
 │   ├── config/          # AppConfig + ConfigManager
 │   ├── local/           # Room: DB, DAO, Entity
@@ -161,7 +167,7 @@ app/src/main/java/com/anchat/
 │   ├── history/         # HistoryScreen + HistoryViewModel
 │   ├── main/            # AnChatApp + LocalApp
 │   ├── me/              # MeScreen
-│   ├── settings/        # SettingsScreen + SettingsViewModel
+│   ├── settings/        # SettingsScreen + SettingsViewModel + LogScreen/LogViewModel（API 日志）
 │   └── theme/
 ```
 
