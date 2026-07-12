@@ -22,8 +22,8 @@ interface PersistenceSink {
     /** 分解行为入库；每条 rawId 即 raw↔behavior 映射 */
     suspend fun persistBehaviors(behaviors: List<Behavior>)
 
-    /** 助手回复落 messages 表（保证现有 UI 正常渲染 / 持久化） */
-    suspend fun persistAssistant(record: ChatMessageRecord)
+    /** 助手回复落 messages 表（保证现有 UI 正常渲染 / 持久化），返回落库后的自增主键 id */
+    suspend fun persistAssistant(record: ChatMessageRecord): Long
 
     /** 更新对话 preview */
     suspend fun updatePreview(conversationId: String, preview: String)

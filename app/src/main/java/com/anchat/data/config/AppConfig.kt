@@ -12,6 +12,16 @@ data class AppConfig(
     /** 默认模型 id（空 = 取模型列表第一个） */
     val defaultModelId: String? = null,
     /**
+     * 全局「聊天 AI 模型」：聊天时若角色/对话未单独指定模型，则使用此模型。
+     * 在「模型管理」中通过下拉框选择，独立于真实对话管理 AI。
+     */
+    val chatModelId: String? = null,
+    /**
+     * 全局「真实对话管理 AI」：开启真实对话时，原始回复会再次发给此模型做行为拆解。
+     * 仅当此字段非空，角色卡/对话的「真实对话」开关才可开启。
+     */
+    val realConversationModelId: String? = null,
+    /**
      * Override for the config file location.
      * Blank = use the default path inside the app's internal storage.
      */

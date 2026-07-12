@@ -48,6 +48,7 @@ class EnginePersistenceSink(
                 promptCacheHitTokens = raw.usage?.promptCacheHitTokens,
                 promptCacheMissTokens = raw.usage?.promptCacheMissTokens,
                 isError = raw.isError,
+                kind = raw.kind,
                 createdAt = raw.createdAt
             )
         )
@@ -62,27 +63,31 @@ class EnginePersistenceSink(
                     order = it.order,
                     type = it.type.value,
                     content = it.content,
+                    duration = it.duration,
                     excuTime = it.excuTime,
-                    completed = it.completed,
-                    isRead = it.isRead
+                    status = it.status,
+                    conversationId = it.conversationId
                 )
             }
         )
     }
 
-    override suspend fun persistAssistant(record: ChatMessageRecord) {
-        messageDao.insert(
+    override suspend fun persistAssistant(record: ChatMessageRecord): Long {
+        return messageDao.insert(
             Message(
                 conversationId = record.conversationId.toLongOrNull() ?: 0L,
+                batchId = record.batchId,
                 role = record.role,
                 content = record.content,
                 reasoningContent = record.reasoningContent,
+                model = null,
                 promptTokens = record.usage?.promptTokens,
                 completionTokens = record.usage?.completionTokens,
                 totalTokens = record.usage?.totalTokens,
                 reasoningTokens = record.usage?.reasoningTokens,
                 promptCacheHitTokens = record.usage?.promptCacheHitTokens,
-                promptCacheMissTokens = record.usage?.promptCacheMissTokens
+                promptCacheMissTokens = record.usage?.promptCacheMissTokens,
+                hidden = record.hidden
             )
         )
     }
@@ -108,9 +113,10 @@ class EnginePersistenceSink(
                 type = enumValues<BehaviorType>().firstOrNull { t -> t.value == it.type }
                     ?: BehaviorType.SPEECH,
                 content = it.content,
+                duration = it.duration,
                 excuTime = it.excuTime,
-                completed = it.completed,
-                isRead = it.isRead
+                status = it.status,
+                conversationId = it.conversationId
             )
         }
     }

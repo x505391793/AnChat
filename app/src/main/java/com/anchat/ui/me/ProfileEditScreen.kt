@@ -61,7 +61,7 @@ fun ProfileEditScreen(navController: NavHostController) {
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("个人信息") },
+                title = { Text("个人信息", style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBackIos, contentDescription = "返回")

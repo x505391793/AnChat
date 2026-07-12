@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
 class ModelManageViewModel(app: Application) : AndroidViewModel(app) {
 
     private val anchatApp = app as AnChatApplication
-    private val repo = anchatApp.settingsRepository
+    val repo = anchatApp.settingsRepository
 
     /** 已添加模型（来自配置文件，响应式） */
     val models = repo.observeModels()
@@ -106,6 +106,18 @@ class ModelManageViewModel(app: Application) : AndroidViewModel(app) {
     fun setDefault(id: String) {
         repo.setDefaultModel(id)
         _message.value = "已设为默认"
+    }
+
+    /** 设置全局「聊天 AI 模型」（下拉框一） */
+    fun setChatModel(id: String?) {
+        repo.setChatModelId(id)
+        _message.value = if (id != null) "已设置聊天 AI 模型" else "已清除聊天 AI 模型"
+    }
+
+    /** 设置全局「真实对话管理 AI」（下拉框二）；设置后角色卡才可开启真实对话 */
+    fun setRealConversationModel(id: String?) {
+        repo.setRealConversationModelId(id)
+        _message.value = if (id != null) "已设置真实对话管理 AI" else "已清除真实对话管理 AI"
     }
 
     fun clearMessage() { _message.value = null }

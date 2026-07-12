@@ -18,5 +18,6 @@ data class RawReplyEntity(
     @ColumnInfo(name = "prompt_cache_hit_tokens") val promptCacheHitTokens: Int?,
     @ColumnInfo(name = "prompt_cache_miss_tokens") val promptCacheMissTokens: Int?,
     @ColumnInfo(name = "is_error") val isError: Boolean,
+    @ColumnInfo(name = "kind") val kind: String,
     @ColumnInfo(name = "created_at") val createdAt: Long
 )

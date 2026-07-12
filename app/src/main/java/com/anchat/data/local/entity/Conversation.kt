@@ -26,8 +26,14 @@ data class Conversation(
     @ColumnInfo(name = "char_description") val charDescription: String? = null,
     @ColumnInfo(name = "char_greeting") val charGreeting: String? = null,
     @ColumnInfo(name = "char_thinking_enabled") val charThinkingEnabled: Boolean = false,
+    /** 对话级「真实对话」开关快照（从角色卡继承，可二次编辑，不影响主角色卡） */
+    @ColumnInfo(name = "char_real_conversation") val charRealConversation: Boolean = false,
 
     // ── 对话级「用户自己」身份快照 ──
+    // userIdentityOverridden：是否用户在「对话内」主动改过自己的身份。
+    //   false（默认）→ 用户身份以全局配置（我→个人信息）为准，创建时不再把旧名烤进快照；
+    //   true → 使用本行 userName/userAvatar/userDescription 作为该对话的显式覆盖。
+    @ColumnInfo(name = "user_identity_overridden") val userIdentityOverridden: Boolean = false,
     @ColumnInfo(name = "user_name") val userName: String? = null,
     @ColumnInfo(name = "user_avatar") val userAvatar: String? = null,
     @ColumnInfo(name = "user_description") val userDescription: String? = null,

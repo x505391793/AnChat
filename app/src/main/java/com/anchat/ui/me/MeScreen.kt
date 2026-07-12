@@ -45,7 +45,7 @@ fun MeScreen(navController: NavHostController) {
     val wechatId = configManager.getDefaultUserWechatId()
 
     Scaffold(
-        topBar = { CenterAlignedTopAppBar(title = { Text("我") }) }
+        topBar = { CenterAlignedTopAppBar(title = { Text("我", style = MaterialTheme.typography.titleMedium) }) }
     ) { padding ->
         Column(
             modifier = Modifier

@@ -68,7 +68,7 @@ fun SettingsScreen(navController: NavHostController) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("设置", color = MaterialTheme.colorScheme.onSurface) },
+                title = { Text("设置", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
@@ -240,6 +240,40 @@ fun SettingsScreen(navController: NavHostController) {
                                 "恢复默认",
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.clickable { viewModel.resetConfigPath() }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ─── 日志（API 返回审计） ─────────────────
+            item {
+                SectionTitle("日志")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { navController.navigate("logs") },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "API 调用日志",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "查看所有 API 返回的原始数据（不含用户发送）",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall
                             )
                         }
                     }

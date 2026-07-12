@@ -17,7 +17,7 @@ import androidx.compose.ui.Modifier
 @Composable
 fun DiscoverScreen() {
     Scaffold(
-        topBar = { CenterAlignedTopAppBar(title = { Text("发现") }) }
+        topBar = { CenterAlignedTopAppBar(title = { Text("发现", style = MaterialTheme.typography.titleMedium) }) }
     ) { padding ->
         Column(
             modifier = Modifier

@@ -2,7 +2,9 @@ package com.anchat.ui.contacts
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -31,8 +33,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import com.anchat.ui.theme.loadAvatarBitmap
 import java.io.File
 import java.util.UUID
@@ -48,7 +56,8 @@ fun AvatarUploadBox(
     onPick: () -> Unit,
     onClear: () -> Unit
 ) {
-    val bitmap = remember(avatarPath) { loadAvatarBitmap(avatarPath) }
+    val context = LocalContext.current
+    val bitmap = remember(avatarPath) { loadAvatarBitmap(avatarPath, context) }
     Box(
         modifier = Modifier
             .size(96.dp)
@@ -64,7 +73,8 @@ fun AvatarUploadBox(
             Image(
                 bitmap = bitmap,
                 contentDescription = name,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
             )
             // 右上角清除按钮
             Box(
@@ -129,27 +139,110 @@ fun GroupCard(content: @Composable ColumnScope.() -> Unit) {
     )
 }
 
-/** 图片选择器：选中本地图 → 复制到应用内部存储，成功时回传本地绝对路径 */
+/**
+ * 图片选择器：优先使用系统 Photo Picker（PickVisualMedia）。
+ * 优势：API 33+ 系统级组件、免权限、不依赖任何第三方 app —— 在无 GMS 的模拟器或
+ * 精简 ROM 上也能稳定调起（GetContent 在这些环境常因无可用处理者而不回调）。
+ * 选中后复制到应用内部存储，返回本地绝对路径（离线可解码、进程重启后仍可读）。
+ * API < 33 无系统 Photo Picker，契约会回退为 GetContent，需 READ_EXTERNAL_STORAGE
+ * 才能读取选中图片，因此先申请权限再启动。
+ */
 @Composable
 fun rememberAvatarPicker(onPicked: (String) -> Unit): () -> Unit {
     val context = LocalContext.current
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
+
+    val pickLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        copyUriToAppStorage(context, uri)?.let { onPicked(it) }
+        uri ?: run {
+            Log.d("ANCHAT_AVATAR", "picker returned NULL (user cancelled or no handler)")
+            return@rememberLauncherForActivityResult
+        }
+        Log.d("ANCHAT_AVATAR", "picker returned uri=$uri scheme=${uri.scheme}")
+        // 对回退场景得到的 content:// 尝试持久化读取授权（部分系统需要），失败则忽略
+        if (uri.scheme == "content") {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {
+                // Photo Picker 返回的 URI 不保证支持持久化授权，复制已即时完成，忽略即可
+            }
+        }
+        val copied = copyUriToAppStorage(context, uri)
+        onPicked(copied ?: uri.toString())
     }
-    return { launcher.launch("image/*") }
+
+    // API < 33 回退 GetContent 时需要存储读取权限
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        Log.d("ANCHAT_AVATAR", "storage permission granted=$granted")
+        if (granted) pickLauncher.launch(
+            PickVisualMediaRequest.Builder()
+                .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                .build()
+        )
+    }
+
+    return {
+        Log.d("ANCHAT_AVATAR", "launchAvatarPicker invoked; sdk=${Build.VERSION.SDK_INT}")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+: Photo Picker 免权限，直接调起系统选择器
+            Log.d("ANCHAT_AVATAR", "-> launching PhotoPicker (PickVisualMedia)")
+            pickLauncher.launch(
+                PickVisualMediaRequest.Builder()
+                    .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    .build()
+            )
+        } else {
+            val perm = Manifest.permission.READ_EXTERNAL_STORAGE
+            if (ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED) {
+                pickLauncher.launch(
+                    PickVisualMediaRequest.Builder()
+                        .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        .build()
+                )
+            } else {
+                permissionLauncher.launch(perm)
+            }
+        }
+    }
 }
 
-/** 将选中的图片 URI 复制到应用内部存储，返回本地绝对路径（可离线解码、持久保留） */
+/**
+ * 将选中的图片 URI 复制到应用内部存储，返回本地绝对路径（可离线解码、持久保留）。
+ * 兼容 content:// 与 file:// 两种 scheme（部分设备 / 文件管理器会直接返回 file://，
+ * 此时 contentResolver.openInputStream 会失败，需直接按文件读取）。
+ */
 fun copyUriToAppStorage(context: Context, uri: Uri): String? {
-    return runCatching {
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            val dir = File(context.filesDir, "avatars").apply { mkdirs() }
-            val file = File(dir, "${UUID.randomUUID()}.jpg")
-            file.outputStream().use { out -> input.copyTo(out) }
-            file.absolutePath
+    return try {
+        val dir = File(context.filesDir, "avatars").apply { if (!exists()) mkdirs() }
+        val ext = when (context.contentResolver.getType(uri)?.lowercase()) {
+            "image/jpeg" -> "jpg"
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            else -> "img"
         }
-    }.getOrNull()
+        val file = File(dir, "${UUID.randomUUID()}.$ext")
+        val input = when (uri.scheme) {
+            "file" -> uri.path?.let { File(it).inputStream() }
+            else -> context.contentResolver.openInputStream(uri)
+        } ?: run {
+            Log.e("AnChat", "copyUriToAppStorage: cannot open input for $uri")
+            return null
+        }
+        input.use { inp ->
+            file.outputStream().use { out -> inp.copyTo(out) }
+        }
+        if (file.length() == 0L) {
+            file.delete()
+            Log.e("AnChat", "copyUriToAppStorage: copied file is empty")
+            return null
+        }
+        file.absolutePath
+    } catch (e: Exception) {
+        Log.e("AnChat", "copyUriToAppStorage failed for $uri", e)
+        null
+    }
 }

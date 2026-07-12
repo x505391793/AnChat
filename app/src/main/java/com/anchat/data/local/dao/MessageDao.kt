@@ -29,6 +29,14 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE conversation_id = :conversationId")
     suspend fun deleteByConversation(conversationId: Long)
 
+    /** 按回合 batch_id 整批删除（用户提问 + AI 回复） */
+    @Query("DELETE FROM messages WHERE batch_id = :batchId")
+    suspend fun deleteByBatchId(batchId: String)
+
+    /** 按主键单条删除（长按气泡删除这一句） */
+    @Query("DELETE FROM messages WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
     /** 打开会话时清未读（仅助手消息） */
     @Query("UPDATE messages SET is_read = 1 WHERE conversation_id = :conversationId AND role = 'assistant'")
     suspend fun markReadByConversation(conversationId: Long)

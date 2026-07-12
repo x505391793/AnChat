@@ -1,5 +1,6 @@
 package com.anchat.ui.main
 
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -17,7 +18,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.anchat.push.NotificationNavigation
 import com.anchat.ui.theme.AnChatTheme
@@ -26,9 +30,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -41,7 +47,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.anchat.ui.chat.ChatScreen
-import com.anchat.ui.chat.ConversationProfileEditScreen
 import com.anchat.ui.contacts.CharacterCardScreen
 import com.anchat.ui.contacts.CharacterEditScreen
 import com.anchat.ui.contacts.ContactsScreen
@@ -51,6 +56,7 @@ import com.anchat.ui.me.MeScreen
 import com.anchat.ui.me.ProfileEditScreen
 import com.anchat.ui.settings.ModelManageScreen
 import com.anchat.ui.settings.SettingsScreen
+import com.anchat.ui.settings.LogScreen
 
 /** WeChat-style green for selected tab. */
 private val WeChatGreen = Color(0xFF07C160)
@@ -78,6 +84,20 @@ fun AnChatAppHost() {
     }
     CompositionLocalProvider(LocalIsDark provides darkTheme) {
         AnChatTheme(darkTheme = darkTheme) {
+            val view = LocalView.current
+            // colorScheme 必须在 @Composable 上下文取，先算好再传入 SideEffect
+            // 状态栏颜色跟随顶栏（TopAppBar 默认 containerColor = colorScheme.surface），与顶部栏一致
+            val statusBarColor = MaterialTheme.colorScheme.surface.toArgb()
+            SideEffect {
+                val window = (view.context as? ComponentActivity)?.window
+                if (window != null) {
+                    // 状态栏颜色与顶栏一致（surface），消除顶部色差（不延伸内容，位置不变）
+                    window.statusBarColor = statusBarColor
+                    // 浅色模式用深色状态栏图标，深色模式用浅色图标
+                    WindowCompat.getInsetsController(window, view)
+                        .isAppearanceLightStatusBars = !darkTheme
+                }
+            }
             AnChatApp()
         }
     }
@@ -106,6 +126,7 @@ fun AnChatApp() {
         && !currentRoute.startsWith("conversation")
         && !currentRoute.startsWith("models")
         && !currentRoute.startsWith("profile")
+        && !currentRoute.startsWith("logs")
         && currentRoute != "settings"
 
     Scaffold(
@@ -172,6 +193,9 @@ fun AnChatApp() {
             composable("settings") {
                 SettingsScreen(navController = navController)
             }
+            composable("logs") {
+                LogScreen(navController = navController)
+            }
             composable("models") {
                 ModelManageScreen(navController = navController)
             }
@@ -211,7 +235,7 @@ fun AnChatApp() {
             ) { backStackEntry ->
                 val convId = backStackEntry.arguments?.getLong("convId") ?: -1L
                 val part = backStackEntry.arguments?.getString("part") ?: "ai"
-                ConversationProfileEditScreen(
+                CharacterEditScreen(
                     navController = navController,
                     convId = convId,
                     part = part

@@ -36,5 +36,7 @@ data class Message(
     @ColumnInfo(name = "prompt_cache_hit_tokens") val promptCacheHitTokens: Int? = null,
     @ColumnInfo(name = "prompt_cache_miss_tokens") val promptCacheMissTokens: Int? = null,
     @ColumnInfo(name = "is_read") val isRead: Boolean = false, // 未读红点依据；助手消息默认未读
+    @ColumnInfo(name = "batch_id") val batchId: String? = null, // 同一回合（用户提问+AI回复+原始raw/behaviors）的关联键
+    @ColumnInfo(name = "hidden") val hidden: Boolean = false, // 真实对话：原始整段回复仅入库供上下文，不在聊天界面直接展示
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
 )

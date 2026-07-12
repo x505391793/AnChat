@@ -74,7 +74,7 @@ fun CharacterCardScreen(navController: NavHostController, characterId: Long) {
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(character?.name ?: "名片") },
+                title = { Text(character?.name ?: "名片", style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBackIos, contentDescription = "返回")

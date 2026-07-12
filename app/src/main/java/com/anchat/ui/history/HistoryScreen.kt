@@ -36,8 +36,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
-import com.anchat.ui.theme.avatarColor
-import com.anchat.ui.theme.avatarInitial
+import com.anchat.ui.theme.CharacterAvatar
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -72,7 +71,7 @@ fun HistoryScreen(navController: NavHostController) {
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("AnChat") },
+                title = { Text("AnChat", style = MaterialTheme.typography.titleMedium) },
                 actions = {
                     // 微信式「+」弹出菜单：添加朋友（新建角色卡）
                     Box {
@@ -224,23 +223,16 @@ private fun ConversationRowContent(
         val displayName = conversation.charRemark?.takeIf { it.isNotBlank() }
             ?: conversation.charName?.takeIf { it.isNotBlank() } ?: conversation.title
 
-        // 头像（首字母色块）：按「原名」展示与配色，备注不影响头像
-        val avatarName = conversation.charName?.takeIf { it.isNotBlank() } ?: conversation.title
-        val avatarColor = avatarColor(avatarName)
+        // 头像配色种子：必须用「原名」(charName)，绝不可取备注(remark)或标题(title)，
+        // 否则同一角色在通讯录与对话列表会算出不同颜色/首字母，破坏跨列表一致。
+        val avatarSeed = conversation.charName?.takeIf { it.isNotBlank() } ?: conversation.title
         Box(modifier = Modifier.size(48.dp)) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(avatarColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = avatarInitial(avatarName),
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
+            CharacterAvatar(
+                name = avatarSeed,
+                avatarPath = conversation.charAvatar,
+                size = 48.dp,
+                corner = 8.dp
+            )
             // 未读红点（头像右上角）
             if (unreadCount > 0) {
                 Box(

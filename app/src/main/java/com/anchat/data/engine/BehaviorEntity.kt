@@ -16,7 +16,10 @@ data class BehaviorEntity(
     @ColumnInfo(name = "order") val order: Int,
     @ColumnInfo(name = "type") val type: String,
     @ColumnInfo(name = "content") val content: String,
+    /** movement 时的离开时长文本；其余类型固定 null */
+    @ColumnInfo(name = "duration") val duration: String? = null,
     @ColumnInfo(name = "excu_time") val excuTime: Long,
-    @ColumnInfo(name = "completed") val completed: Boolean,
-    @ColumnInfo(name = "is_read") val isRead: Boolean
+    @ColumnInfo(name = "status") val status: Int,
+    /** 所属对话 id（与 raw_replies.conversation_id 同值）；用于行为事件按对话隔离，避免串台 */
+    @ColumnInfo(name = "conversation_id") val conversationId: String = ""
 )

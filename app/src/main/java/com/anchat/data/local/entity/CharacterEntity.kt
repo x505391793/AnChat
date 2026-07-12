@@ -42,6 +42,9 @@ data class CharacterEntity(
     /** 是否开启思考模式（控制推理过程展示） */
     @ColumnInfo(name = "thinking_enabled") val thinkingEnabled: Boolean = false,
 
+    /** 是否开启「真实对话」模式（角色卡级开关，对话快照可独立覆盖） */
+    @ColumnInfo(name = "real_conversation") val realConversation: Boolean = false,
+
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

@@ -20,8 +20,7 @@ class ReplyAnalyzer {
                 type = BehaviorType.SPEECH,
                 content = raw.content,
                 excuTime = System.currentTimeMillis(),
-                completed = false,
-                isRead = false
+                status = Behavior.STATUS_PENDING
             )
         )
     }

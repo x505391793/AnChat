@@ -12,6 +12,7 @@ import com.anchat.data.remote.DeepSeekConstants
 import com.anchat.data.repository.LocalRepository
 import com.anchat.data.repository.SettingsRepository
 import com.anchat.push.PushNotifier
+import com.anchat.service.RequestForegroundService
 import com.anchat.engine.scheduler.BehaviorScheduler
 import com.anchat.engine.analyzer.ReplyAnalyzer
 import com.anchat.engine.core.ConversationEngine
@@ -39,7 +40,14 @@ class AnChatApplication : Application() {
     val configManager: ConfigManager by lazy { ConfigManager(this) }
 
     val localRepository: LocalRepository by lazy {
-        LocalRepository(database.conversationDao(), database.messageDao(), database.characterDao())
+        LocalRepository(
+            database,
+            database.conversationDao(),
+            database.messageDao(),
+            database.characterDao(),
+            database.rawReplyDao(),
+            database.behaviorDao()
+        )
     }
     val settingsRepository: SettingsRepository by lazy {
         SettingsRepository(deepSeekApi, configManager)
@@ -51,7 +59,7 @@ class AnChatApplication : Application() {
     private val engineExceptionHandler = CoroutineExceptionHandler { _, e ->
         Log.e("AnChatEngine", "引擎协程异常（已隔离，不影响主流程）", e)
     }
-    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + engineExceptionHandler)
+    val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + engineExceptionHandler)
     private val engineSinkImpl = EngineEngineSink()
     val engineSink: EngineSink = engineSinkImpl
     val engineEvents: Flow<EngineEvent> = engineSinkImpl.events
@@ -62,7 +70,7 @@ class AnChatApplication : Application() {
             database.rawReplyDao(),
             database.behaviorDao()
         )
-        val scheduler = BehaviorScheduler(engineScope, persistence)
+        val scheduler = BehaviorScheduler(engineScope, persistence, engineSinkImpl)
         ConversationEngine(
             scope = engineScope,
             requestSink = EngineRequestSink(deepSeekApi),
@@ -109,6 +117,7 @@ class AnChatApplication : Application() {
         engineScope.launch {
             engineEvents.collect { event ->
                 if (event is EngineEvent.AssistantMessage) {
+                    RequestForegroundService.finish(this@AnChatApplication)
                     val convId = event.record.conversationId.toLongOrNull() ?: return@collect
                     val conv = localRepository.getConversation(convId)
                     val title = conv?.charRemark?.takeIf { it.isNotBlank() }
@@ -116,6 +125,8 @@ class AnChatApplication : Application() {
                         ?: conv?.title ?: "AnChat"
                     val preview = event.record.content.take(50)
                     pushNotifier.onAssistantMessage(convId, title, preview)
+                } else if (event is EngineEvent.Error) {
+                    RequestForegroundService.finish(this@AnChatApplication)
                 }
             }
         }

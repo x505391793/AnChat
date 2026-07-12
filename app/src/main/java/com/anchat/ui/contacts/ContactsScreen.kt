@@ -52,7 +52,7 @@ fun ContactsScreen(navController: NavHostController) {
         .collectAsStateWithLifecycle(initialValue = emptyList())
 
     Scaffold(
-        topBar = { CenterAlignedTopAppBar(title = { Text("通讯录") }) }) { padding ->
+        topBar = { CenterAlignedTopAppBar(title = { Text("通讯录", style = MaterialTheme.typography.titleMedium) }) }) { padding ->
         // 按显示名首字母分组：英文直接取；中文取拼音首字母；其余归 #；参考微信通讯录吸顶字母头
         val sections = remember(characters) {
             characters.groupBy { char ->

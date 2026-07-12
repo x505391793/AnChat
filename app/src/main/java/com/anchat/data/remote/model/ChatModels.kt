@@ -17,7 +17,14 @@ data class ChatRequest(
     val messages: List<ChatMessageDto>,
     val stream: Boolean = false,
     val temperature: Double = 0.7,
-    @SerialName("max_tokens") val maxTokens: Int? = null
+    @SerialName("max_tokens") val maxTokens: Int? = null,
+    @SerialName("response_format") val responseFormat: ResponseFormat? = null
+)
+
+/** OpenAI / DeepSeek 兼容的 JSON 输出格式声明 */
+@Serializable
+data class ResponseFormat(
+    val type: String
 )
 
 // ─── Non-streaming response models ───

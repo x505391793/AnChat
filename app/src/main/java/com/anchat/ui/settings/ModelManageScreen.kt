@@ -19,13 +19,15 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import com.anchat.data.config.ModelConfig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +61,8 @@ fun ModelManageScreen(navController: NavHostController) {
     val isFetching by viewModel.isFetching.collectAsStateWithLifecycle()
     val models by viewModel.models.collectAsStateWithLifecycle(initialValue = emptyList())
     val defaultModelId by viewModel.defaultModelId.collectAsStateWithLifecycle(initialValue = null)
+    val chatModelId by viewModel.repo.observeChatModelId().collectAsStateWithLifecycle(initialValue = null)
+    val realConvModelId by viewModel.repo.observeRealConversationModelId().collectAsStateWithLifecycle(initialValue = null)
     val message by viewModel.message.collectAsStateWithLifecycle()
 
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -73,7 +78,7 @@ fun ModelManageScreen(navController: NavHostController) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("模型管理", color = MaterialTheme.colorScheme.onSurface) },
+                title = { Text("模型管理", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
@@ -239,12 +244,6 @@ fun ModelManageScreen(navController: NavHostController) {
                                         .padding(16.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    RadioButton(
-                                        selected = model.id == defaultModelId,
-                                        onClick = { viewModel.setDefault(model.id) },
-                                        colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
-                                    )
-                                    Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(model.name.ifBlank { model.id }, color = MaterialTheme.colorScheme.onSurface)
                                         Text(
@@ -273,7 +272,92 @@ fun ModelManageScreen(navController: NavHostController) {
                 }
             }
 
+            // ─── 模型分配（两个独立下拉） ─────────
+            item {
+                SectionTitle("模型分配")
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Column(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        ModelPicker(
+                            title = "聊天 AI 模型",
+                            hint = "角色/对话未单独指定模型时使用",
+                            selectedId = chatModelId,
+                            models = models,
+                            onSelect = { viewModel.setChatModel(it) }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        ModelPicker(
+                            title = "真实对话管理 AI",
+                            hint = "选定后才可在角色卡开启「真实对话」；开启后原始回复会发此模型做行为拆解",
+                            selectedId = realConvModelId,
+                            models = models,
+                            onSelect = { viewModel.setRealConversationModel(it) }
+                        )
+                    }
+                }
+            }
+
             item { Spacer(Modifier.height(8.dp)) }
+        }
+    }
+}
+
+/**
+ * 单个模型下拉框：选项为「未选择」+ 已添加模型列表。两个下拉（聊天模型 / 真实对话管理）
+ * 相互独立，分别由 ViewModel 写入配置。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelPicker(
+    title: String,
+    hint: String,
+    selectedId: String?,
+    models: List<ModelConfig>,
+    onSelect: (String?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = models.firstOrNull { it.id == selectedId }?.name
+        ?: models.firstOrNull { it.id == selectedId }?.id
+        ?: "未选择"
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+        Text(hint, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(2.dp))
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            TextField(
+                value = selectedName,
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier.menuAnchor().fillMaxWidth()
+            )
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("未选择") },
+                    onClick = { onSelect(null); expanded = false }
+                )
+                models.forEach { m ->
+                    DropdownMenuItem(
+                        text = { Text(m.name.ifBlank { m.id }) },
+                        onClick = { onSelect(m.id); expanded = false }
+                    )
+                }
+            }
         }
     }
 }

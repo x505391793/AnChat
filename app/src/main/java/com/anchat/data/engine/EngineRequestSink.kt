@@ -5,6 +5,7 @@ import com.anchat.data.remote.model.ChatCompletionResponse
 import com.anchat.data.remote.model.ChatMessageDto
 import com.anchat.data.remote.model.ChatRequest
 import com.anchat.data.remote.model.ChatUsage
+import com.anchat.data.remote.model.ResponseFormat
 import com.anchat.engine.core.contract.RawReply
 import com.anchat.engine.core.contract.RequestSpec
 import com.anchat.engine.core.contract.TokenUsage
@@ -15,7 +16,13 @@ import java.util.UUID
 class EngineRequestSink(private val api: DeepSeekApi) : RequestSink {
     override suspend fun send(spec: RequestSpec): RawReply {
         val dtos = spec.messages.map { ChatMessageDto(role = it.role, content = it.content) }
-        val req = ChatRequest(model = spec.model, messages = dtos, stream = false)
+        val req = ChatRequest(
+            model = spec.model,
+            messages = dtos,
+            stream = false,
+            maxTokens = spec.maxTokens,
+            responseFormat = spec.responseFormat?.let { ResponseFormat(type = it) }
+        )
         return try {
             val resp: ChatCompletionResponse = api.sendChat(spec.apiKey, spec.apiUrl, req)
             val msg = resp.choices.firstOrNull()?.message

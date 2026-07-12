@@ -2,8 +2,7 @@ package com.anchat.ui.chat
 
 import android.util.Log
 import android.widget.Toast
-import com.anchat.ui.theme.avatarColor
-import com.anchat.ui.theme.avatarInitial
+import com.anchat.ui.theme.CharacterAvatar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -63,9 +62,13 @@ import com.anchat.AnChatApplication
 import com.anchat.ui.main.LocalApp
 import com.anchat.ui.main.LocalIsDark
 import com.anchat.ui.main.Screen
-import kotlin.math.absoluteValue
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId: Long = -1L) {
     val app: AnChatApplication = LocalApp.current
@@ -112,15 +115,25 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
         }
     }
 
-    // Auto-scroll to bottom when new messages arrive
+    // 进入对话时直接定位到底部（最新消息），不带动画，避免长对话"从头滑到尾"；
+    // 仅后续新增消息（用户发送 / AI 回复）才做平滑滚动。
+    var initialScrolled by remember { mutableStateOf(false) }
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+        if (messages.isEmpty()) return@LaunchedEffect
+        if (!initialScrolled) {
+            // 首次进入：无动画瞬时跳到底部
+            listState.scrollToItem(messages.lastIndex)
+            initialScrolled = true
+        } else {
+            // 后续新消息：平滑滚到底部
+            listState.animateScrollToItem(messages.lastIndex)
+        }
     }
 
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(topBarTitle) },
+                title = { Text(topBarTitle, style = MaterialTheme.typography.titleMedium) },
                 navigationIcon = {
                     IconButton(onClick = {
                         Log.d("ChatScreen", "点击了返回")
@@ -165,7 +178,10 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
                         msg = msg,
                         dark = dark,
                         assistantName = assistantName,
+                        charAvatar = profile?.charAvatar,
+                        userAvatar = profile?.userAvatar,
                         showReasoning = thinkingEnabled,
+                        onDelete = { viewModel.deleteMessage(it) },
                         onAvatarClick = { isUser ->
                             val id = conversationId
                             if (id != null) {
@@ -221,12 +237,16 @@ private fun ChatMessageItem(
     msg: ChatMessage,
     dark: Boolean,
     assistantName: String,
+    charAvatar: String? = null,
+    userAvatar: String? = null,
     showReasoning: Boolean = true,
+    onDelete: (Long) -> Unit = {},
     onAvatarClick: ((isUser: Boolean) -> Unit)? = null
 ) {
-    val isUser = msg.role == "user"
+    val isBehavior = msg.behaviorType != null
     val isSystem = msg.role == "system"
-    val isAssistant = msg.role == "assistant"
+    val isUser = msg.role == "user" && !isBehavior
+    val isAssistant = msg.role == "assistant" || msg.behaviorType == "speech"
 
     // 系统提示（如「请先填写 API Key」）：微信式居中灰底胶囊
     if (isSystem) {
@@ -238,6 +258,48 @@ private fun ChatMessageItem(
         ) {
             Text(
                 text = msg.content,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            )
+        }
+        return
+    }
+
+    // 真实对话行为：emotion 走居中胶囊；movement 先发 content 气泡再显示离开状态
+    if (msg.behaviorType == "emotion") {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "😊  对方发表情包",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            )
+        }
+        return
+    }
+    if (msg.behaviorType == "movement") {
+        // movement 类型不入气泡（content 可能是「离开」等占位），只居中显示离开状态行
+        val awayText = "对方离开了"
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = awayText,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier
@@ -281,6 +343,7 @@ private fun ChatMessageItem(
                     ChatAvatar(
                         assistantName,
                     isUser = false,
+                    avatarPath = charAvatar,
                     onClick = onAvatarClick?.let { { it(false) } }
                 )
                 Spacer(Modifier.width(8.dp))
@@ -288,13 +351,16 @@ private fun ChatMessageItem(
             MessageBubble(
                 text = msg.content.ifBlank { "…" },
                 isUser = isUser,
-                dark = dark
+                dark = dark,
+                id = msg.id,
+                onDelete = onDelete
             )
             if (isUser) {
                 Spacer(Modifier.width(8.dp))
                 ChatAvatar(
                     "我",
                     isUser = true,
+                    avatarPath = userAvatar,
                     onClick = onAvatarClick?.let { { it(true) } }
                 )
             }
@@ -302,8 +368,16 @@ private fun ChatMessageItem(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageBubble(text: String, isUser: Boolean, dark: Boolean) {
+private fun MessageBubble(
+    text: String,
+    isUser: Boolean,
+    dark: Boolean,
+    id: Long = -1L,
+    onDelete: (Long) -> Unit = {}
+) {    var showMenu by remember { mutableStateOf(false) }
+
     // 微信配色：自己发出 = 浅绿 #95EC69（暗色深绿），对方 = 白（暗色深灰）
     val bubbleColor = if (isUser)
         (if (dark) Color(0xFF3B5323) else Color(0xFF95EC69))
@@ -311,10 +385,17 @@ private fun MessageBubble(text: String, isUser: Boolean, dark: Boolean) {
         (if (dark) Color(0xFF2C2C2C) else Color.White)
     val textColor = if (dark) Color(0xFFE5E5E5) else Color(0xFF181818)
 
+    // 显示端剥离 markdown 语法（API 不塞任何额外提示词，纯客户端处理）
+    val displayText = stripMarkdown(text)
+
     Box(
         modifier = Modifier
-            .fillMaxWidth(0.72f)
+            .fillMaxWidth(0.82f)
             .wrapContentSize(if (isUser) Alignment.TopEnd else Alignment.TopStart)
+            .combinedClickable(
+                onLongClick = { showMenu = true },
+                onClick = {}
+            )
     ) {
         // 指向头像的小三角
         Box(
@@ -332,32 +413,87 @@ private fun MessageBubble(text: String, isUser: Boolean, dark: Boolean) {
                 .background(bubbleColor)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            Text(
-                text = text,
-                color = textColor,
-                style = MaterialTheme.typography.bodyMedium
+            // 文字区域优先处理长按与拖拽，系统浮动菜单复制选中的文字。
+            // 气泡留白区域长按则打开操作菜单，“复制文本”复制整条消息。
+            SelectionContainer {
+                Text(
+                    text = displayText,
+                    color = textColor,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+            shape = RoundedCornerShape(18.dp),
+            tonalElevation = 8.dp,
+            shadowElevation = 16.dp
+        ) {
+            DropdownMenuItem(
+                text = { Text("删除") },
+                onClick = {
+                    onDelete(id)
+                    showMenu = false
+                }
             )
         }
     }
 }
 
+/**
+ * 纯客户端剥离 markdown 语法字符，让气泡显示为干净纯文字。
+ * 不改动 API 请求体（不消耗任何额外 token）。
+ */
+private fun stripMarkdown(src: String): String {
+    val lines = src.lineSequence().map { line ->
+        var l = line
+        // 代码围栏 ``` 整行移除（保留代码内容无意义，直接去掉标记行）
+        l = l.replace(Regex("^```.*$"), "")
+        // 标题 #
+        l = l.replace(Regex("^#{1,6}\\s+"), "")
+        // 引用 >
+        l = l.replace(Regex("^>\\s?"), "")
+        // 无序列表 - * +
+        l = l.replace(Regex("^\\s*[-*+]\\s+"), "")
+        // 有序列表 1.
+        l = l.replace(Regex("^\\s*\\d+\\.\\s+"), "")
+        l
+    }.joinToString("\n")
+    return lines
+        // 粗体 ** 整段移除标记
+        .replace(Regex("\\*\\*"), "")
+        // 斜体 *（非双星）
+        .replace(Regex("(?<!\\*)\\*(?!\\*)"), "")
+        // 行内代码 `
+        .replace("`", "")
+        // 链接 [text](url) -> text
+        .replace(Regex("\\[([^\\]]+)\\]\\([^)]*\\)"), "$1")
+        // 删除线 ~~
+        .replace("~~", "")
+}
+
 @Composable
-private fun ChatAvatar(name: String, isUser: Boolean, onClick: (() -> Unit)? = null) {
-    // 用户侧固定灰底「我」；AI 侧按原名统一配色（与列表/名片一致，备注不影响）
-    val color = if (isUser) Color(0xFFB2B2B2) else avatarColor(name)
-    val label = if (isUser) "我" else avatarInitial(name)
+private fun ChatAvatar(
+    name: String,
+    isUser: Boolean,
+    avatarPath: String? = null,
+    onClick: (() -> Unit)? = null
+) {
+    // 优先显示上传的本地头像图，无图回退首字母（与列表/名片一致）
     Box(
         modifier = Modifier
             .size(36.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(color)
             .clickable(enabled = onClick != null) { onClick?.invoke() },
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = label,
-            color = Color.White,
-            style = MaterialTheme.typography.titleSmall
+        CharacterAvatar(
+            name = name,
+            avatarPath = avatarPath,
+            size = 36.dp,
+            corner = 6.dp
         )
     }
 }

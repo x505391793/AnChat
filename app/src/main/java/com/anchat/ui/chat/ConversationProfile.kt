@@ -33,5 +33,7 @@ data class ConversationProfile(
     /** 该对话使用的模型（null = 跟随全局默认） */
     val modelId: String?,
     /** 是否开启思考模式 */
-    val thinkingEnabled: Boolean
+    val thinkingEnabled: Boolean,
+    /** 是否开启「真实对话」：开启则原始回复进入行为拆解，由行为层驱动 UI */
+    val realConversation: Boolean = false
 )

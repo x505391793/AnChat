@@ -67,9 +67,28 @@ class ConfigManager(private val context: Context) {
     private val _defaultModelId = MutableStateFlow(load().defaultModelId)
     val defaultModelIdFlow: StateFlow<String?> = _defaultModelId.asStateFlow()
 
+    // ─── 全局模型选择（模型管理页两个独立下拉） ─────────
+    private val _chatModelId = MutableStateFlow(load().chatModelId)
+    val chatModelIdFlow: StateFlow<String?> = _chatModelId.asStateFlow()
+
+    private val _realConversationModelId = MutableStateFlow(load().realConversationModelId)
+    val realConversationModelIdFlow: StateFlow<String?> = _realConversationModelId.asStateFlow()
+
     fun getModels(): List<ModelConfig> = _models.value
 
     fun getModel(id: String): ModelConfig? = _models.value.firstOrNull { it.id == id }
+
+    fun getChatModelId(): String? = _chatModelId.value
+
+    fun getRealConversationModelId(): String? = _realConversationModelId.value
+
+    fun setChatModelId(id: String?) {
+        persist { cfg -> cfg.copy(chatModelId = id?.takeIf { it.isNotBlank() }) }
+    }
+
+    fun setRealConversationModelId(id: String?) {
+        persist { cfg -> cfg.copy(realConversationModelId = id?.takeIf { it.isNotBlank() }) }
+    }
 
     /** 添加（或覆盖同 id）模型，并在尚无默认时设为默认。 */
     fun addModels(models: List<ModelConfig>) {
@@ -104,6 +123,8 @@ class ConfigManager(private val context: Context) {
         _themeMode.value = cfg.themeMode
         _models.value = cfg.models
         _defaultModelId.value = cfg.defaultModelId
+        _chatModelId.value = cfg.chatModelId
+        _realConversationModelId.value = cfg.realConversationModelId
         _notificationsEnabled.value = cfg.notificationsEnabled
     }
 
@@ -117,6 +138,8 @@ class ConfigManager(private val context: Context) {
         _themeMode.value = newConfig.themeMode
         _models.value = newConfig.models
         _defaultModelId.value = newConfig.defaultModelId
+        _chatModelId.value = newConfig.chatModelId
+        _realConversationModelId.value = newConfig.realConversationModelId
         _notificationsEnabled.value = newConfig.notificationsEnabled
     }
 

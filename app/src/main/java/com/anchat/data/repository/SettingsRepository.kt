@@ -21,6 +21,12 @@ class SettingsRepository(
     fun observeModels(): Flow<List<ModelConfig>> = configManager.modelsFlow
     fun observeDefaultModelId(): Flow<String?> = configManager.defaultModelIdFlow
     fun getDefaultModelId(): String? = configManager.defaultModelIdFlow.value
+    fun observeChatModelId(): Flow<String?> = configManager.chatModelIdFlow
+    fun observeRealConversationModelId(): Flow<String?> = configManager.realConversationModelIdFlow
+    fun getChatModelId(): String? = configManager.getChatModelId()
+    fun getRealConversationModelId(): String? = configManager.getRealConversationModelId()
+    fun setChatModelId(id: String?) = configManager.setChatModelId(id)
+    fun setRealConversationModelId(id: String?) = configManager.setRealConversationModelId(id)
     fun getModelConfig(id: String): ModelConfig? = configManager.getModel(id)
     fun setDefaultModel(id: String) = configManager.setDefaultModel(id)
     fun addModels(list: List<ModelConfig>) = configManager.addModels(list)

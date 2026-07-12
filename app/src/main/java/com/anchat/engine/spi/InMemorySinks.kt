@@ -33,15 +33,18 @@ class InMemoryPersistenceSink : PersistenceSink {
     override suspend fun getHistory(conversationId: String): List<ChatMessageRecord> = history.toList()
     override suspend fun persistRaw(raw: RawReply, conversationId: String) { raws += raw }
     override suspend fun persistBehaviors(list: List<Behavior>) { behaviors += list }
-    override suspend fun persistAssistant(record: ChatMessageRecord) { assistantMessages += record }
+    override suspend fun persistAssistant(record: ChatMessageRecord): Long {
+        assistantMessages += record
+        return (assistantMessages.size).toLong()
+    }
     override suspend fun updatePreview(conversationId: String, preview: String) {}
     override suspend fun markCompleted(behaviorId: String) {
-        behaviors.replaceAll { if (it.behaviorId == behaviorId) it.copy(completed = true) else it }
+        behaviors.replaceAll { if (it.behaviorId == behaviorId) it.copy(status = Behavior.STATUS_SENT) else it }
     }
     override suspend fun markRead(behaviorId: String) {
-        behaviors.replaceAll { if (it.behaviorId == behaviorId) it.copy(isRead = true) else it }
+        behaviors.replaceAll { if (it.behaviorId == behaviorId) it.copy(status = Behavior.STATUS_READ) else it }
     }
-    override suspend fun getDueBehaviors(): List<Behavior> = behaviors.filter { !it.completed }
+    override suspend fun getDueBehaviors(): List<Behavior> = behaviors.filter { it.status == Behavior.STATUS_PENDING }
 }
 
 class InMemoryEngineSink : EngineSink {
