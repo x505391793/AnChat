@@ -16,7 +16,7 @@ data class BehaviorEntity(
     @ColumnInfo(name = "order") val order: Int,
     @ColumnInfo(name = "type") val type: String,
     @ColumnInfo(name = "content") val content: String,
-    /** movement 时的离开时长文本；其余类型固定 null */
+    /** leave 时的离开时长文本；其余类型固定 null */
     @ColumnInfo(name = "duration") val duration: String? = null,
     @ColumnInfo(name = "excu_time") val excuTime: Long,
     @ColumnInfo(name = "status") val status: Int,

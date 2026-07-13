@@ -48,6 +48,7 @@ import androidx.navigation.NavHostController
 import com.anchat.data.config.ModelConfig
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Conversation
+import com.anchat.engine.core.contract.RealConvVersion
 import com.anchat.ui.main.LocalApp
 import kotlinx.coroutines.launch
 
@@ -93,7 +94,9 @@ fun CharacterEditScreen(
     var modelId by remember { mutableStateOf<String?>(null) }
     var thinkingEnabled by remember { mutableStateOf(false) }
     var realConversation by remember { mutableStateOf(false) }
+    var realConvVersion by remember { mutableStateOf("v1") }
     var modelExpanded by remember { mutableStateOf(false) }
+    var versionExpanded by remember { mutableStateOf(false) }
 
     var existing by remember { mutableStateOf<CharacterEntity?>(null) }   // 角色卡模式：原实体
     var conv by remember { mutableStateOf<Conversation?>(null) }         // 对话模式：原对话
@@ -126,6 +129,7 @@ fun CharacterEditScreen(
             modelId = c?.modelId ?: character?.modelId
             thinkingEnabled = c?.charThinkingEnabled ?: character?.thinkingEnabled ?: false
             realConversation = c?.charRealConversation ?: character?.realConversation ?: false
+            realConvVersion = c?.charRealConvVersion ?: character?.realConvVersion ?: "v1"
         } else if (editId >= 0) {
             val e = app.localRepository.getCharacter(editId)
             existing = e
@@ -142,6 +146,7 @@ fun CharacterEditScreen(
                 modelId = e.modelId
                 thinkingEnabled = e.thinkingEnabled
                 realConversation = e.realConversation
+                realConvVersion = e.realConvVersion
             }
         }
     }
@@ -195,6 +200,7 @@ fun CharacterEditScreen(
                                             charGreeting = if (isAi) charGreeting.trim().ifBlank { null } else c.charGreeting,
                                             charThinkingEnabled = if (isAi) thinkingEnabled else c.charThinkingEnabled,
                                             charRealConversation = if (isAi) realConversation else c.charRealConversation,
+                                            charRealConvVersion = if (isAi) realConvVersion else c.charRealConvVersion,
                                             modelId = if (isAi) modelId else c.modelId,
                                             userIdentityOverridden = if (!isAi) true else c.userIdentityOverridden,
                                             userName = if (!isAi) userName.trim().ifBlank { null } else c.userName,
@@ -223,6 +229,7 @@ fun CharacterEditScreen(
                                             modelId = modelId,
                                             thinkingEnabled = thinkingEnabled,
                                             realConversation = realConversation,
+                                            realConvVersion = realConvVersion,
                                             createdAt = ex.createdAt,
                                             updatedAt = System.currentTimeMillis()
                                         )
@@ -239,7 +246,8 @@ fun CharacterEditScreen(
                                             userDescription = userDescription.trim().ifBlank { null },
                                             modelId = modelId,
                                             thinkingEnabled = thinkingEnabled,
-                                            realConversation = realConversation
+                                            realConversation = realConversation,
+                                            realConvVersion = realConvVersion
                                         )
                                     }
                                     scope.launch {
@@ -338,7 +346,11 @@ fun CharacterEditScreen(
                     onThinking = { thinkingEnabled = it },
                     realConversation = realConversation,
                     onRealConversation = { realConversation = it },
-                    realConversationEnabled = realConvAvailable,
+                    realConversationEnabled = realConvAvailable || realConvVersion == RealConvVersion.V2,
+                    realConvVersion = realConvVersion,
+                    onRealConvVersion = { realConvVersion = it },
+                    versionExpanded = versionExpanded,
+                    onVersionExpanded = { versionExpanded = it },
                     expanded = modelExpanded,
                     onExpanded = { modelExpanded = it }
                 )
@@ -427,6 +439,10 @@ private fun ModelSettingsFields(
     realConversation: Boolean,
     onRealConversation: (Boolean) -> Unit,
     realConversationEnabled: Boolean,
+    realConvVersion: String,
+    onRealConvVersion: (String) -> Unit,
+    versionExpanded: Boolean,
+    onVersionExpanded: (Boolean) -> Unit,
     expanded: Boolean,
     onExpanded: (Boolean) -> Unit
 ) {
@@ -507,6 +523,51 @@ private fun ModelSettingsFields(
             onCheckedChange = onRealConversation,
             enabled = realConversationEnabled
         )
+    }
+
+    if (realConversation) {
+        val versionName = when (realConvVersion) {
+            RealConvVersion.V1 -> "v1（行为拆解）"
+            RealConvVersion.V2 -> "v2（单次请求）"
+            else -> realConvVersion
+        }
+        ExposedDropdownMenuBox(
+            expanded = versionExpanded,
+            onExpandedChange = onVersionExpanded,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+        ) {
+            OutlinedTextField(
+                value = versionName,
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                label = { Text("真实对话版本") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = versionExpanded) },
+                modifier = Modifier.menuAnchor().fillMaxWidth()
+            )
+            DropdownMenu(
+                expanded = versionExpanded,
+                onDismissRequest = { onVersionExpanded(false) }
+            ) {
+                RealConvVersion.ALL.forEach { v ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                when (v) {
+                                    RealConvVersion.V1 -> "v1（行为拆解）"
+                                    RealConvVersion.V2 -> "v2（单次请求）"
+                                    else -> v
+                                }
+                            )
+                        },
+                        onClick = {
+                            onRealConvVersion(v)
+                            onVersionExpanded(false)
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 

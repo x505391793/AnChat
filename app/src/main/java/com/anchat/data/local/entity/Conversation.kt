@@ -28,6 +28,8 @@ data class Conversation(
     @ColumnInfo(name = "char_thinking_enabled") val charThinkingEnabled: Boolean = false,
     /** 对话级「真实对话」开关快照（从角色卡继承，可二次编辑，不影响主角色卡） */
     @ColumnInfo(name = "char_real_conversation") val charRealConversation: Boolean = false,
+    /** 对话级「真实对话版本」快照（从角色卡继承，可二次编辑）；默认 v1 */
+    @ColumnInfo(name = "char_real_conv_version") val charRealConvVersion: String = "v1",
 
     // ── 对话级「用户自己」身份快照 ──
     // userIdentityOverridden：是否用户在「对话内」主动改过自己的身份。

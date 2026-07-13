@@ -21,7 +21,7 @@ import kotlin.text.RegexOption
  * 嵌入位置：对话 API 拿到原始回复（raw data layer）之后、写入行为层之前。
  * 当「真实对话」开启且已配置管理 AI 时，把上一条原始回复文本再次包装成请求，
  * 发送给「真实对话管理 AI」，由其按微信拟人聊天语义拆解为可见行为事件
- * （speech / emotion / movement），解析 JSON 后落行为层，由调度器按 excuTime 分时推送。
+ * （speech / emotion / leave），解析 JSON 后落行为层，由调度器按 excuTime 分时推送。
  *
  * 不携带角色 / 身份快照——拆解只针对「上一条原始回复文本」。
  */
@@ -29,34 +29,21 @@ class BehaviorDecomposer(private val requestSink: RequestSink) {
 
     /** 行为分析器 system 提示（规则 + 输出格式约束） */
     private val analyzerSystem: String = buildString {
-        appendLine("你是微信拟人聊天行为分析器。将输入文本拆解为聊天界面可见的行为事件，按时间顺序输出JSON数组。")
+        appendLine("你是微信聊天行为分析器。把输入文本拆成界面可见的行为事件，按时间顺序输出 JSON 数组。")
         appendLine()
-        appendLine("行为类型：speech(发消息) / emotion(发表情包) / movement(离开/暂离)")
+        appendLine("类型：")
+        appendLine("- speech：发消息。按自然停顿或语气拆成多条，每条一个事件。")
+        appendLine("- emotion：发表情包。仅当文本明确要发表情时才生成。")
+        appendLine("- leave：离开/暂离。主动从文本提取离开意图，即使角色用 speech 表达也要额外生成 leave 事件并预测离开时长。")
         appendLine()
-        appendLine("规则：")
-        appendLine("- 忽略不可见内容，情绪只有明确发表情时才生成emotion")
-        appendLine("- movement：从对话内容中主动提取离开意图，即使角色用speech表达也需额外生成movement事件并预测时长")
-        appendLine("- speech：根据自然停顿、省略号或语气变化，将一段话拆为多条独立消息，每条为一个speech事件")
+        appendLine("字段（每条事件）：")
+        appendLine("- order: 序号")
+        appendLine("- type: \"speech\" | \"emotion\" | \"leave\"")
+        appendLine("- content: 文本内容")
+        appendLine("- duration: leave 时填离开时长（有则提取，无则按原因预测），其它类型固定 null")
         appendLine()
-        appendLine("字段：")
-        appendLine("- order: 整数序号")
-        appendLine("- type: \"speech\" | \"emotion\" | \"movement\"")
-        appendLine("- content: 字符串")
-        appendLine("- duration: movement时填写时长（文本有则提取，无则根据离开原因预测），其他类型固定null")
-        appendLine()
-        appendLine("格式：")
-        appendLine("{")
-        appendLine("  \"events\": [")
-        appendLine("    {")
-        appendLine("      \"order\": number,")
-        appendLine("      \"type\": \"speech\" | \"emotion\" | \"movement\",")
-        appendLine("      \"content\": string,")
-        appendLine("      \"duration\": string | null")
-        appendLine("    }")
-        appendLine("  ]")
-        appendLine("}")
-        appendLine()
-        appendLine("仅输出```json代码块。")
+        appendLine("只输出 JSON，格式：")
+        appendLine("{\"events\":[{\"order\":1,\"type\":\"speech\",\"content\":\"...\",\"duration\":null}]}")
     }
 
     /**
@@ -104,6 +91,13 @@ class BehaviorDecomposer(private val requestSink: RequestSink) {
         return parseEvents(reply.content, rawId, ownerConversationId)
     }
 
+    /**
+     * 把模型返回的 JSON 行为事件解析为行为列表（v1 拆解与 v2 直接解析复用）。
+     * 不发起网络；解析失败（无 JSON / 空事件 / 结构异常）时抛出，由调用方回退。
+     */
+    fun parseToBehaviors(jsonText: String, rawId: String, conversationId: String): List<Behavior> =
+        parseEvents(jsonText, rawId, conversationId)
+
     /** 从模型回复中提取 ```json 代码块并解析为行为列表，按序分配 excuTime */
     private fun parseEvents(jsonText: String, rawId: String, conversationId: String): List<Behavior> {
         val block = extractJsonBlock(jsonText)
@@ -121,7 +115,7 @@ class BehaviorDecomposer(private val requestSink: RequestSink) {
         val result = resp.events.sortedBy { it.order }.map { ev ->
             val type = when (ev.type.lowercase()) {
                 "emotion" -> BehaviorType.EMOTION
-                "movement" -> BehaviorType.MOVEMENT
+                "leave" -> BehaviorType.LEAVE
                 else -> BehaviorType.SPEECH
             }
             val behavior = Behavior(
@@ -130,18 +124,18 @@ class BehaviorDecomposer(private val requestSink: RequestSink) {
                 order = ev.order,
                 type = type,
                 content = ev.content,
-                duration = if (type == BehaviorType.MOVEMENT) ev.duration else null,
+                duration = if (type == BehaviorType.LEAVE) ev.duration else null,
                 excuTime = cursor,
                 status = Behavior.STATUS_PENDING,
                 conversationId = conversationId
             )
             // 每种行为占用一段间隔，让行为分时依次出现（模拟真人节奏）。
-            // movement 的 duration（如「10分钟」）作为「离开时长」追加在自身之后，
+            // leave 的 duration（如「10分钟」）作为「离开时长」追加在自身之后，
             // 表示这句话发完才离开、且下一条行为要等其回来——符合「先发话再离开」语义。
             cursor += when (type) {
                 BehaviorType.SPEECH -> max(600L, (ev.content.length * 50L).coerceAtMost(4000L))
                 BehaviorType.EMOTION -> 800L
-                BehaviorType.MOVEMENT -> 500L + parseDurationToMs(ev.duration)
+                BehaviorType.LEAVE -> 500L + parseDurationToMs(ev.duration)
             }
             behavior
         }
@@ -168,11 +162,12 @@ class BehaviorDecomposer(private val requestSink: RequestSink) {
      */
     private fun parseDurationToMs(text: String?): Long {
         if (text.isNullOrBlank()) return 0L
-        val m = Regex("""(\d+(?:\.\d+)?)\s*(分钟|分|小时|时|h|秒|s)""", RegexOption.IGNORE_CASE).find(text)
+        val m = Regex("""(\d+(?:\.\d+)?)\s*(分钟|分|min|m|小时|时|h|秒|s)""", RegexOption.IGNORE_CASE).find(text)
         val num = m?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: return 0L
         val unit = m.groupValues.getOrNull(2)?.lowercase() ?: return 0L
         val factor = when {
             unit.startsWith("分") -> 60_000L
+            unit == "min" || unit == "m" -> 60_000L
             unit.startsWith("小") || unit == "时" || unit == "h" -> 3_600_000L
             unit.startsWith("秒") || unit == "s" -> 1_000L
             else -> 60_000L

@@ -73,7 +73,7 @@ data class RawReply(
 // 行为类型（枚举，后续逐步扩充更多处理类型）
 enum class BehaviorType(val value: String) {
     SPEECH("speech"),     // 说一句话
-    MOVEMENT("movement")  // 做一个动作（移动 / 跳转 / 工具 …）
+    LEAVE("leave")       // 离开 / 暂离等动作
 }
 
 // speech 行为的渲染状态（仅 SPEECH 用；TYPING→SPEAKING 由 UI 在行为可见后推进，非存储字段）

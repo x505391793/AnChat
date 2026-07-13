@@ -3,6 +3,7 @@ package com.anchat.engine.sender
 import com.anchat.engine.core.contract.ApiMessage
 import com.anchat.engine.core.contract.ConversationContext
 import com.anchat.engine.core.contract.ChatMessageRecord
+import com.anchat.engine.core.contract.RealConvVersion
 import com.anchat.engine.core.contract.RequestSpec
 import com.anchat.engine.core.contract.TurnInput
 
@@ -27,20 +28,35 @@ class RequestBuilder {
         context: ConversationContext,
         history: List<ChatMessageRecord>
     ): RequestSpec {
-        val msgs = mutableListOf<ApiMessage>()
+        // 正常 system 提示（角色人设 + 用户身份）；v2 在其末尾追加行为拆解输出约束
+        val systemParts = mutableListOf<String>()
         if (!context.systemPrompt.isNullOrBlank()) {
-            msgs += ApiMessage("system", context.systemPrompt)
+            systemParts += context.systemPrompt
+        }
+        val isV2 = context.realConvVersion == RealConvVersion.V2
+        if (isV2) {
+            systemParts += RealConvVersion.V2_INSTRUCTION
+        }
+        val systemText = if (systemParts.isEmpty()) null else systemParts.joinToString("\n\n")
+
+        val msgs = mutableListOf<ApiMessage>()
+        if (systemText != null) {
+            msgs += ApiMessage("system", systemText)
         }
         history.forEach {
             if (it.role == "user" || it.role == "assistant") {
                 msgs += ApiMessage(it.role, it.content)
             }
         }
+        // v2：主请求即要求 JSON 输出（DeepSeek 需显式声明 response_format）
+        val isDeepseek = context.modelId.contains("deepseek", ignoreCase = true)
+        val responseFormat = if (isV2 && isDeepseek) "json_object" else null
         return RequestSpec(
             model = context.modelId,
             apiKey = context.apiKey,
             apiUrl = context.apiUrl,
-            messages = msgs
+            messages = msgs,
+            responseFormat = responseFormat
         )
     }
 }

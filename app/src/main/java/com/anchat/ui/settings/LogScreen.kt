@@ -227,13 +227,14 @@ private fun LogItem(raw: RawReply) {
 
             // 每条 token：总消耗 / 命中缓存 / 未命中（仅在有用量数据时显示）
             raw.usage?.let { u ->
-                if (u.totalTokens != null || u.promptCacheHitTokens != null || u.promptCacheMissTokens != null) {
+                if (u.totalTokens != null || u.completionTokens != null || u.promptCacheHitTokens != null || u.promptCacheMissTokens != null) {
                     Spacer(Modifier.height(4.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         TokenMini(formatNum((u.totalTokens ?: 0).toLong()), "总", MaterialTheme.colorScheme.primary)
+                        TokenMini(formatNum((u.completionTokens ?: 0).toLong()), "输出", MaterialTheme.colorScheme.secondary)
                         TokenMini(formatNum((u.promptCacheHitTokens ?: 0).toLong()), "命中", MaterialTheme.colorScheme.tertiary)
                         TokenMini(formatNum((u.promptCacheMissTokens ?: 0).toLong()), "未命中", MaterialTheme.colorScheme.error)
                     }

@@ -18,11 +18,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -82,6 +83,7 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
     // StateFlow 收集延迟而丢失，导致中文无法上屏。
     var inputText by rememberSaveable { mutableStateOf("") }
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val isTyping by viewModel.isTyping.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val title by viewModel.title.collectAsStateWithLifecycle()
     val thinkingEnabled by viewModel.thinkingEnabled.collectAsStateWithLifecycle()
@@ -98,7 +100,7 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
         ?: profile?.charName?.takeIf { it.isNotBlank() }
         ?: title.takeIf { it.isNotBlank() }
         ?: "新对话"
-    val topBarTitle = if (isLoading) "对方正在输入中……" else displayName
+    val topBarTitle = if (isTyping) "对方正在输入中……" else displayName
 
     // 跟随用户主题开关（而非系统），使气泡配色随设置切换
     val dark = LocalIsDark.current
@@ -269,7 +271,7 @@ private fun ChatMessageItem(
         return
     }
 
-    // 真实对话行为：emotion 走居中胶囊；movement 先发 content 气泡再显示离开状态
+    // 真实对话行为：emotion 走居中胶囊；leave 先发 content 气泡再显示离开状态
     if (msg.behaviorType == "emotion") {
         Box(
             modifier = Modifier
@@ -289,8 +291,8 @@ private fun ChatMessageItem(
         }
         return
     }
-    if (msg.behaviorType == "movement") {
-        // movement 类型不入气泡（content 可能是「离开」等占位），只居中显示离开状态行
+    if (msg.behaviorType == "leave") {
+        // leave 类型不入气泡（content 可能是「离开」等占位），只居中显示离开状态行
         val awayText = "对方离开了"
         Box(
             modifier = Modifier
@@ -391,7 +393,7 @@ private fun MessageBubble(
     Box(
         modifier = Modifier
             .fillMaxWidth(0.82f)
-            .wrapContentSize(if (isUser) Alignment.TopEnd else Alignment.TopStart)
+            .wrapContentWidth(if (isUser) Alignment.End else Alignment.Start)
             .combinedClickable(
                 onLongClick = { showMenu = true },
                 onClick = {}

@@ -76,6 +76,8 @@ data class ConversationContext(
     val batchId: String = "", // 同一回合关联键，等价于 rawId，用于整批删除
     /** 是否开启「真实对话」：开启则原始回复进入行为拆解 API，否则直接返回单条行为 */
     val realConversation: Boolean = false,
+    /** 真实对话版本：开启后具体走哪条行为生成路径（见 RealConvVersion）；默认 v1 */
+    val realConvVersion: String = RealConvVersion.DEFAULT,
     /** 真实对话管理 AI 规格；realConversation=true 且非 null 时生效 */
     val decompSpec: DecompositionSpec? = null
 )

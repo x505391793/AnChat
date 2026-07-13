@@ -123,7 +123,11 @@ class AnChatApplication : Application() {
                     val title = conv?.charRemark?.takeIf { it.isNotBlank() }
                         ?: conv?.charName?.takeIf { it.isNotBlank() }
                         ?: conv?.title ?: "AnChat"
-                    val preview = event.record.content.take(50)
+                    // 通知预览用「对话列表预览」字段：引擎已按行为层算好（最后一条 speech 文本，
+                    // 普通对话=整段回复、真实对话=拆解出的说话文本），而非原始整段回复
+                    // （hidden=true，真实对话里是源数据/JSON），避免推源数据。
+                    val preview = conv?.preview?.takeIf { it.isNotBlank() }?.take(50)
+                        ?: event.record.content.take(50)
                     pushNotifier.onAssistantMessage(convId, title, preview)
                 } else if (event is EngineEvent.Error) {
                     RequestForegroundService.finish(this@AnChatApplication)

@@ -3,6 +3,7 @@ package com.anchat.engine.core
 import com.anchat.engine.analyzer.ReplyAnalyzer
 import com.anchat.engine.decomposer.BehaviorDecomposer
 import com.anchat.engine.core.contract.BehaviorType
+import com.anchat.engine.core.contract.RealConvVersion
 import com.anchat.engine.core.contract.ChatMessageRecord
 import com.anchat.engine.core.contract.ConversationContext
 import com.anchat.engine.core.contract.EngineEvent
@@ -60,23 +61,42 @@ class ConversationEngine(
                 }
                 persistenceSink.persistRaw(raw.copy(conversationId = context.conversationId), context.conversationId)
 
-                // ── 行为层分两路：真实对话开启→进入拆解 API；否则直出单条 speech ──
-                val decompEnabled = context.realConversation && context.decompSpec != null && !raw.isError
-                val behaviors = if (decompEnabled) {
-                    try {
-                        decomposer.decompose(raw.content, raw.id, context.decompSpec!!, context.conversationId, persistenceSink)
-                    } catch (e: Exception) {
-                        // 拆解失败（网络/解析/空事件）→ 回退直出，保证至少有可见回复
-                        analyzer.analyze(raw)
+                // ── 行为层分三路：关闭真实对话→直出单条；v1→二次拆解；v2→主请求已直接产出 JSON 行为事件 ──
+                val realConv = context.realConversation && !raw.isError
+                val realConvV1 = realConv && context.realConvVersion == RealConvVersion.V1 && context.decompSpec != null
+                val realConvV2 = realConv && context.realConvVersion == RealConvVersion.V2
+                val behaviors = when {
+                    !realConv -> analyzer.analyze(raw)
+                    context.realConvVersion == RealConvVersion.V1 -> {
+                        if (context.decompSpec != null) {
+                            try {
+                                decomposer.decompose(raw.content, raw.id, context.decompSpec, context.conversationId, persistenceSink)
+                            } catch (e: Exception) {
+                                // 拆解失败（网络/解析/空事件）→ 回退直出，保证至少有可见回复
+                                analyzer.analyze(raw)
+                            }
+                        } else {
+                            analyzer.analyze(raw)
+                        }
                     }
-                } else {
-                    analyzer.analyze(raw)
+                    context.realConvVersion == RealConvVersion.V2 -> {
+                        try {
+                            // 主请求已带 v2 输出约束且为 JSON 模式，返回即为行为事件 JSON，直接解析
+                            decomposer.parseToBehaviors(raw.content, raw.id, context.conversationId)
+                        } catch (e: Exception) {
+                            // 解析失败（非 JSON / 空事件）→ 回退直出，保证至少有可见回复
+                            analyzer.analyze(raw)
+                        }
+                    }
+                    else -> analyzer.analyze(raw)
                 }
+                // 仅「真实对话开启 + v1/v2 行为驱动」隐藏原始回复，由行为层驱动 UI
+                val decompEnabled = realConvV1 || realConvV2
                 persistenceSink.persistBehaviors(behaviors)
                 scheduler.onPersisted(raw.id)
 
                 // 列表预览取本批行为中「最后一条可见说话(speech)」的内容：
-                // 末尾若是 movement(离开) / emotion(表情包) 则往前取，确保对应最后看到的文字气泡，
+                // 末尾若是 leave(离开) / emotion(表情包) 则往前取，确保对应最后看到的文字气泡，
                 // 而非整段回复开头——旧逻辑 raw.content.take(50) 显示的是这一批的第一条。
                 val previewText = behaviors
                     .lastOrNull { it.type == BehaviorType.SPEECH }
@@ -92,8 +112,8 @@ class ConversationEngine(
                         reasoningContent = raw.reasoningContent,
                         usage = raw.usage,
                         batchId = context.batchId,
-                        // 真实对话：原始整段回复仅入库供上下文，由行为层数据驱动 UI，不直接展示
-                        hidden = decompEnabled
+                        // 所有模式原始回复仅入库供上下文，UI 完全由行为层驱动（修复普通对话双气泡）
+                        hidden = true
                     )
                     val newId = persistenceSink.persistAssistant(rec)
                     persistenceSink.updatePreview(context.conversationId, previewText.take(50))

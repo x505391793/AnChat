@@ -9,10 +9,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.anchat.AnChatApplication
 import com.anchat.data.local.entity.CharacterEntity
+import com.anchat.engine.core.contract.RealConvVersion
 import com.anchat.data.local.entity.Conversation
 import com.anchat.data.local.entity.Message
 import com.anchat.engine.core.ConversationEngine
 import com.anchat.engine.core.contract.Behavior
+import com.anchat.engine.core.contract.BehaviorType
 import com.anchat.engine.core.contract.ConversationContext
 import com.anchat.engine.core.contract.DecompositionSpec
 import com.anchat.engine.core.contract.EngineEvent
@@ -25,6 +27,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
+import kotlin.random.Random
+import kotlinx.coroutines.delay
+
+/** 打字占位时长：每字毫秒（取折中值，后续可按手感调整）；最终再叠 ±10% 随机浮动。 */
+private const val TYPING_PER_CHAR_MS = 50L
 
 data class ChatMessage(
     val role: String,
@@ -33,9 +40,9 @@ data class ChatMessage(
     val batchId: String? = null,
     /** 落库后的自增主键，供单条删除精准定位（未落库乐观消息为 -1） */
     val id: Long = -1L,
-    /** 真实对话行为类型：speech / emotion / movement（为 null 表示普通消息） */
+    /** 真实对话行为类型：speech / emotion / leave（为 null 表示普通消息） */
     val behaviorType: String? = null,
-    /** movement 的离开时长文本 */
+    /** leave 的离开时长文本 */
     val duration: String? = null,
     /** 行为表主键，用于去重与整批删除 */
     val behaviorId: String? = null
@@ -62,6 +69,10 @@ class ChatViewModel(
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    /** 顶部「对方正在输入中……」标记：仅由行为层 speech 推送延时期间触发，纯前端态 */
+    private val _isTyping = MutableStateFlow(false)
+    val isTyping: StateFlow<Boolean> = _isTyping.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -142,9 +153,27 @@ class ChatViewModel(
                         val cid = conversationId
                         if (cid != null && b.conversationId == cid.toString() && b.behaviorId !in shownBehaviorIds) {
                             shownBehaviorIds += b.behaviorId
-                            _messages.value = _messages.value + behaviorToChatMessage(b)
-                            // 实时推到当前激活对话并立即可见 → 翻为已读（status 1 → 2）
-                            viewModelScope.launch(Dispatchers.IO) { localRepo.markBehaviorRead(b.behaviorId) }
+                            when (b.type) {
+                                BehaviorType.SPEECH -> {
+                                    // speech：顶部显示「对方正在输入中……」，按字数预估 + 随机浮动后直接弹出真实气泡
+                                    val real = behaviorToChatMessage(b)
+                                    val base = (real.content.length * TYPING_PER_CHAR_MS)
+                                    val r = 0.9 + Random.nextDouble() * 0.2
+                                    val delayMs = (base * r).toLong()
+                                    _isTyping.value = true
+                                    viewModelScope.launch {
+                                        delay(delayMs)
+                                        _isTyping.value = false
+                                        _messages.value = _messages.value + real
+                                        localRepo.markBehaviorRead(b.behaviorId)
+                                    }
+                                }
+                                else -> {
+                                    // leave / emotion 不进打字占位，直接出
+                                    _messages.value = _messages.value + behaviorToChatMessage(b)
+                                    viewModelScope.launch(Dispatchers.IO) { localRepo.markBehaviorRead(b.behaviorId) }
+                                }
+                            }
                         }
                     }
                     is EngineEvent.Error -> {
@@ -280,6 +309,7 @@ class ChatViewModel(
         charGreeting = character?.greeting,
         charThinkingEnabled = character?.thinkingEnabled ?: false,
         charRealConversation = character?.realConversation ?: false,
+        charRealConvVersion = character?.realConvVersion ?: "v1",
         // 用户身份默认跟随全局配置，不在创建时把旧名烤进快照
         userIdentityOverridden = false,
         userName = character?.userName,
@@ -306,6 +336,12 @@ class ChatViewModel(
 
         if (profile.systemPrompt.isNotBlank()) {
             parts.add(profile.systemPrompt)
+        }
+
+        // 角色（AI 自身）名称：备注优先于角色卡名，确保 AI 知道自己并自称该名字
+        val charName = profile.charRemark?.ifBlank { null } ?: profile.charName?.ifBlank { null }
+        if (!charName.isNullOrBlank()) {
+            parts.add("你的名字是${charName}。")
         }
 
         val userName = profile.userName?.ifBlank { null }
@@ -400,9 +436,9 @@ class ChatViewModel(
             }
             _messages.value = _messages.value + ChatMessage("user", text, batchId = batchId, id = userMsgId)
 
-            // 真实对话：开启且已配置管理 AI 时，构建第二模型（拆解）规格
+            // 真实对话：开关纯标志（版本决定是否真需要管理 AI）；v2 主请求直接产出 JSON，无需第二模型
             val decompSpec = buildDecompSpec()
-            val realConv = _profile.value?.realConversation == true && decompSpec != null
+            val realConv = _profile.value?.realConversation == true
 
             val context = ConversationContext(
                 conversationId = convId.toString(),
@@ -412,6 +448,7 @@ class ChatViewModel(
                 apiUrl = apiUrl ?: "",
                 batchId = batchId,
                 realConversation = realConv,
+                realConvVersion = conv?.charRealConvVersion ?: character?.realConvVersion ?: RealConvVersion.DEFAULT,
                 decompSpec = decompSpec
             )
             engine.send(TurnInput(text), context)
@@ -444,12 +481,16 @@ class ChatViewModel(
 
     // ─── 真实对话：行为层驱动 UI 的辅助 ───────────────
 
-    /** 该对话是否处于真实对话模式（角色/对话开关开启且已配置管理 AI） */
+    /** 该对话是否处于真实对话模式（角色/对话开关开启） */
     private suspend fun isRealConvConversation(convId: Long): Boolean {
         val conv = localRepo.getConversation(convId) ?: return false
         val character = if (conv.characterId >= 0) localRepo.getCharacter(conv.characterId) else null
         val flag = conv.charRealConversation ?: character?.realConversation ?: false
-        return flag && configManager.getRealConversationModelId() != null
+        if (!flag) return false
+        val version = conv.charRealConvVersion ?: character?.realConvVersion ?: RealConvVersion.DEFAULT
+        // v1 仍需管理 AI（第二模型）；v2 主请求直接产出 JSON，无需管理 AI
+        return if (version == RealConvVersion.V2) true
+        else configManager.getRealConversationModelId() != null
     }
 
     /** 构建真实对话管理 AI 规格（第二模型）；未配置则返回 null */
@@ -460,7 +501,7 @@ class ChatViewModel(
         return DecompositionSpec(modelId = m.id, apiKey = m.apiKey, apiUrl = m.apiUrl)
     }
 
-    /** 行为 → 聊天展示消息（speech/emotion/movement 由 ChatScreen 按 behaviorType 区分渲染） */
+    /** 行为 → 聊天展示消息（speech/emotion/leave 由 ChatScreen 按 behaviorType 区分渲染） */
     private fun behaviorToChatMessage(b: Behavior): ChatMessage = ChatMessage(
         role = "behavior",
         content = b.content,
@@ -488,12 +529,11 @@ class ChatViewModel(
                     ChatMessage(m.role, m.content, m.reasoningContent, m.batchId, id = m.id)
                 )
             }
-        if (realConv) {
-            val behaviors = localRepo.getCompletedBehaviors(convId)
-            shownBehaviorIds += behaviors.map { it.behaviorId }
-            behaviors.forEach { b ->
-                items += Pair(b.excuTime, behaviorToChatMessage(b))
-            }
+        // 所有模式统一由行为层驱动 UI（气泡只来自行为层；问候语仍经 messages 表 hidden=false 加载）
+        val behaviors = localRepo.getCompletedBehaviors(convId)
+        shownBehaviorIds += behaviors.map { it.behaviorId }
+        behaviors.forEach { b ->
+            items += Pair(b.excuTime, behaviorToChatMessage(b))
         }
         return items.sortedBy { it.first }.map { it.second }
     }

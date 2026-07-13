@@ -4,7 +4,7 @@ package com.anchat.engine.core.contract
 enum class BehaviorType(val value: String) {
     SPEECH("speech"),     // 发一句话
     EMOTION("emotion"),   // 发表情包
-    MOVEMENT("movement")  // 离开 / 暂离等动作
+    LEAVE("leave")       // 离开 / 暂离等动作
 }
 
 /** speech 行为的渲染状态（仅 SPEECH 用；TYPING→SPEAKING 由 UI 在行为可见后推进，非存储字段） */
@@ -23,7 +23,7 @@ data class Behavior(
     val order: Int,               // 执行顺序
     val type: BehaviorType,       // 行为类型
     val content: String,          // 说的内容 / 做的动作描述
-    /** movement 时的离开时长文本（如「10分钟」）；其余类型固定 null */
+    /** leave 时的离开时长文本（如「10分钟」）；其余类型固定 null */
     val duration: String? = null,
     val excuTime: Long,          // 行为触发的真实 wall-clock 时间戳
     /** 状态机：0=未到点(待播) / 1=已执行未读 / 2=已读。取代原 completed+isRead 两布尔（消除非法组合） */

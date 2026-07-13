@@ -22,7 +22,7 @@ import com.anchat.data.local.entity.Message
         Conversation::class, Message::class, CharacterEntity::class,
         RawReplyEntity::class, BehaviorEntity::class
     ],
-    version = 18,
+    version = 19,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -62,7 +62,7 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 
-    // v14 → v15：行为表 behaviors 增加 duration（movement 离开时长）；
+    // v14 → v15：行为表 behaviors 增加 duration（leave 离开时长）；
     // 消息表 messages 增加 hidden（真实对话下原始整段回复仅入库供上下文、不直接展示）。
     private val MIGRATION_14_15 = object : Migration(14, 15) {
         override fun migrate(db: SupportSQLiteDatabase) {
@@ -117,6 +117,15 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 
+    // v18 → v19：角色卡 character 增加 real_conv_version（真实对话版本，默认 v1）；
+    // 对话快照 conversations 增加 char_real_conv_version（对话级覆盖，默认 v1）。
+    private val MIGRATION_18_19 = object : Migration(18, 19) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE character ADD COLUMN real_conv_version TEXT NOT NULL DEFAULT 'v1'")
+            db.execSQL("ALTER TABLE conversations ADD COLUMN char_real_conv_version TEXT NOT NULL DEFAULT 'v1'")
+        }
+    }
+
     @Volatile
     private var INSTANCE: AppDatabase? = null
 
@@ -127,8 +136,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DB_NAME
             )
-            .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
-            .fallbackToDestructiveMigration()  // 开发阶段，其他未覆盖的版本跳跃重建
+            .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
             .build().also { INSTANCE = it }
         }
     }

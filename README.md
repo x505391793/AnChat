@@ -23,6 +23,10 @@
 2. 长期记忆
 3. 对话搜索 / 星标筛选
 4. 模型列表自动拉取
+5. 上下文压缩
+6. 真实时间感知
+7. 主动发起对话
+8. 开发者模式开关
 
 ## 技术栈
 
@@ -134,7 +138,7 @@
 2. 引擎 `RequestBuilder` 拼请求 → `RequestSink.send()` 拿回 `RawReply`（原始回复）。
 3. `PersistenceSink.persistRaw(raw)` 写入 **raw_replies** 表（含 `kind` 区分来源；供 API 上下文 / 缓存命中 / 全量审计）。
 4. 行为拆解分两路：
-   - **真实对话**（开启且配置了管理 AI）：`BehaviorDecomposer` 把整段 `RawReply` 二次包装请求发给「真实对话管理 AI」，由其按微信拟人语义拆解为多条 `Behavior`（speech / emotion / movement），经 `persistBehaviors` 写入 **behaviors** 表；原始整段回复仅入库供上下文，不直接展示。
+   - **真实对话**（开启且配置了管理 AI）：`BehaviorDecomposer` 把整段 `RawReply` 二次包装请求发给「真实对话管理 AI」，由其按微信拟人语义拆解为多条 `Behavior`（speech / emotion / leave），经 `persistBehaviors` 写入 **behaviors** 表；原始整段回复仅入库供上下文，不直接展示。
    - **非真实对话**：`ReplyAnalyzer.analyze(raw)` 直出单条 `Behavior`。
 5. `BehaviorScheduler` 按 `excuTime` 分时派发：到点翻 `status`（0→1）并经 `EngineSink.emit(EngineEvent.BehaviorDue)` **显式**推给 UI（取代旧版依赖 Room Flow 失效重查的不可靠方案）；同时 `persistAssistant` 落 messages 表、更新对话 preview 为最后一条可见说话；`ChatViewModel` 经 `engineEvents` 收事件渲染气泡。
 

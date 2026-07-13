@@ -45,6 +45,9 @@ data class CharacterEntity(
     /** 是否开启「真实对话」模式（角色卡级开关，对话快照可独立覆盖） */
     @ColumnInfo(name = "real_conversation") val realConversation: Boolean = false,
 
+    /** 真实对话版本（real_conversation 开启后走哪条行为生成路径）；默认 v1 */
+    @ColumnInfo(name = "real_conv_version") val realConvVersion: String = "v1",
+
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
