@@ -46,20 +46,24 @@ class ConversationEngine(
                 val processed = interceptor.process(input)
                 val history = persistenceSink.getHistory(context.conversationId)
                 val spec = requestBuilder.buildSpec(context, history)
+                val rawId = java.util.UUID.randomUUID().toString()
                 val raw = try {
-                    requestSink.send(spec).copy(id = context.batchId)
+                    requestSink.send(spec).copy(id = rawId)
                 } catch (e: CancellationException) {
                 // 用户删除气泡时取消尚未完成的回合；取消不是一次失败回复。
                 throw e
             } catch (e: Exception) {
                     RawReply(
-                        id = context.batchId,
+                        id = rawId,
                         conversationId = context.conversationId,
                         content = "❌ ${e.message ?: "发送失败"}",
                         isError = true
                     )
                 }
-                persistenceSink.persistRaw(raw.copy(conversationId = context.conversationId), context.conversationId)
+                persistenceSink.persistRaw(
+                    raw.copy(conversationId = context.conversationId, role = "assistant"),
+                    context.conversationId
+                )
 
                 // ── 行为层分三路：关闭真实对话→直出单条；v1→二次拆解；v2→主请求已直接产出 JSON 行为事件 ──
                 val realConv = context.realConversation && !raw.isError
@@ -110,15 +114,12 @@ class ConversationEngine(
                         role = "assistant",
                         content = raw.content,
                         reasoningContent = raw.reasoningContent,
-                        usage = raw.usage,
-                        batchId = context.batchId,
-                        // 所有模式原始回复仅入库供上下文，UI 完全由行为层驱动（修复普通对话双气泡）
-                        hidden = true
+                        usage = raw.usage
                     )
-                    val newId = persistenceSink.persistAssistant(rec)
                     persistenceSink.updatePreview(context.conversationId, previewText.take(50))
-                    // 始终 emit：VM 收到 hidden 标记后只清 loading，不进展示列表
-                    engineSink.emit(EngineEvent.AssistantMessage(rec.copy(id = newId)))
+                    // 始终 emit：仅作「响应已到达 → 清 loading」信号，
+                    // 实际气泡由行为层（BehaviorDue）驱动，不在此进展示列表。
+                    engineSink.emit(EngineEvent.AssistantMessage(rec))
                 } else {
                     engineSink.emit(EngineEvent.Error(raw.content))
                 }

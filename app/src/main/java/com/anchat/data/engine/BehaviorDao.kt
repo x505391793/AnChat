@@ -1,5 +1,6 @@
 package com.anchat.data.engine
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -27,9 +28,21 @@ interface BehaviorDao {
     )
     suspend fun markAllReadByConversation(conversationId: String)
 
-    /** 按 raw_id（即 batch_id）整批删除行为 */
-    @Query("DELETE FROM behaviors WHERE raw_id = :rawId")
-    suspend fun deleteByRawId(rawId: String)
+    /** 按整回合键 batch_id 整批删除行为（用户 text + AI speech/emotion/leave） */
+    @Query("DELETE FROM behaviors WHERE batch_id = :batchId")
+    suspend fun deleteByBatchId(batchId: String)
+
+    /** 按对话 id 整清（删对话时联动） */
+    @Query("DELETE FROM behaviors WHERE conversation_id = :conversationId")
+    suspend fun deleteByConversation(conversationId: String)
+
+    /** 按主键单条删除（长按气泡删这一句） */
+    @Query("DELETE FROM behaviors WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    /** 按主键取单条（判断是否为用户行以联动删 raw） */
+    @Query("SELECT * FROM behaviors WHERE id = :id")
+    suspend fun getById(id: String): BehaviorEntity?
 
     /**
      * 取某对话下已完成（已到点）的行为，按执行时间升序。
@@ -51,4 +64,17 @@ interface BehaviorDao {
            ORDER BY b.excu_time ASC"""
     )
     suspend fun getCompletedByConversation(conversationId: String): List<BehaviorEntity>
+
+    /** 未读红点：按对话统计「已执行未读」行为（status=1） */
+    @Query(
+        "SELECT conversation_id AS conversationId, COUNT(*) AS cnt " +
+            "FROM behaviors WHERE status = 1 GROUP BY conversation_id"
+    )
+    fun observeUnread(): Flow<List<BehaviorUnread>>
 }
+
+/** 未读计数行：conversation_id（字符串，与 behaviors.conversation_id 同值）+ 数量 */
+data class BehaviorUnread(
+    @ColumnInfo(name = "conversationId") val conversationId: String,
+    @ColumnInfo(name = "cnt") val cnt: Int
+)

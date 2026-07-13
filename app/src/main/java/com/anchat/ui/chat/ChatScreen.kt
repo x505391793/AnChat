@@ -242,13 +242,12 @@ private fun ChatMessageItem(
     charAvatar: String? = null,
     userAvatar: String? = null,
     showReasoning: Boolean = true,
-    onDelete: (Long) -> Unit = {},
+    onDelete: (String) -> Unit = {},
     onAvatarClick: ((isUser: Boolean) -> Unit)? = null
 ) {
-    val isBehavior = msg.behaviorType != null
     val isSystem = msg.role == "system"
-    val isUser = msg.role == "user" && !isBehavior
-    val isAssistant = msg.role == "assistant" || msg.behaviorType == "speech"
+    val isUser = msg.role == "user"
+    val isAssistant = msg.role == "assistant"
 
     // 系统提示（如「请先填写 API Key」）：微信式居中灰底胶囊
     if (isSystem) {
@@ -354,7 +353,7 @@ private fun ChatMessageItem(
                 text = msg.content.ifBlank { "…" },
                 isUser = isUser,
                 dark = dark,
-                id = msg.id,
+                behaviorId = msg.behaviorId,
                 onDelete = onDelete
             )
             if (isUser) {
@@ -376,8 +375,8 @@ private fun MessageBubble(
     text: String,
     isUser: Boolean,
     dark: Boolean,
-    id: Long = -1L,
-    onDelete: (Long) -> Unit = {}
+    behaviorId: String? = null,
+    onDelete: (String) -> Unit = {}
 ) {    var showMenu by remember { mutableStateOf(false) }
 
     // 微信配色：自己发出 = 浅绿 #95EC69（暗色深绿），对方 = 白（暗色深灰）
@@ -436,7 +435,7 @@ private fun MessageBubble(
             DropdownMenuItem(
                 text = { Text("删除") },
                 onClick = {
-                    onDelete(id)
+                    onDelete(behaviorId ?: return@DropdownMenuItem)
                     showMenu = false
                 }
             )

@@ -43,7 +43,6 @@ class AnChatApplication : Application() {
         LocalRepository(
             database,
             database.conversationDao(),
-            database.messageDao(),
             database.characterDao(),
             database.rawReplyDao(),
             database.behaviorDao()
@@ -65,7 +64,6 @@ class AnChatApplication : Application() {
     val engineEvents: Flow<EngineEvent> = engineSinkImpl.events
     val engine: ConversationEngine by lazy {
         val persistence = EnginePersistenceSink(
-            database.messageDao(),
             database.conversationDao(),
             database.rawReplyDao(),
             database.behaviorDao()

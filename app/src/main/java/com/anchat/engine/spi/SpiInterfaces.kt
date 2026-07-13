@@ -16,14 +16,11 @@ interface PersistenceSink {
     /** 取对话历史（user/assistant），供拼请求 */
     suspend fun getHistory(conversationId: String): List<ChatMessageRecord>
 
-    /** 原始回复入库（给 API 看 / 命中缓存） */
+    /** 原始回复入库（给 API 看 / 命中缓存）；raw.id 即主键，批次键仅属行为层 */
     suspend fun persistRaw(raw: RawReply, conversationId: String)
 
     /** 分解行为入库；每条 rawId 即 raw↔behavior 映射 */
     suspend fun persistBehaviors(behaviors: List<Behavior>)
-
-    /** 助手回复落 messages 表（保证现有 UI 正常渲染 / 持久化），返回落库后的自增主键 id */
-    suspend fun persistAssistant(record: ChatMessageRecord): Long
 
     /** 更新对话 preview */
     suspend fun updatePreview(conversationId: String, preview: String)

@@ -27,16 +27,11 @@ class InMemoryRequestSink : RequestSink {
 class InMemoryPersistenceSink : PersistenceSink {
     val raws = mutableListOf<RawReply>()
     val behaviors = mutableListOf<Behavior>()
-    val assistantMessages = mutableListOf<ChatMessageRecord>()
     private val history = mutableListOf<ChatMessageRecord>()
 
     override suspend fun getHistory(conversationId: String): List<ChatMessageRecord> = history.toList()
     override suspend fun persistRaw(raw: RawReply, conversationId: String) { raws += raw }
     override suspend fun persistBehaviors(list: List<Behavior>) { behaviors += list }
-    override suspend fun persistAssistant(record: ChatMessageRecord): Long {
-        assistantMessages += record
-        return (assistantMessages.size).toLong()
-    }
     override suspend fun updatePreview(conversationId: String, preview: String) {}
     override suspend fun markCompleted(behaviorId: String) {
         behaviors.replaceAll { if (it.behaviorId == behaviorId) it.copy(status = Behavior.STATUS_SENT) else it }

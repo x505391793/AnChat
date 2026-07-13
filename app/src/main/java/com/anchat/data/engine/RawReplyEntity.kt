@@ -9,6 +9,7 @@ import androidx.room.PrimaryKey
 data class RawReplyEntity(
     @PrimaryKey val id: String,                    // rawId
     @ColumnInfo(name = "conversation_id") val conversationId: String,
+    @ColumnInfo(name = "role") val role: String, // user / assistant / system
     @ColumnInfo(name = "content") val content: String,
     @ColumnInfo(name = "reasoning_content") val reasoningContent: String?,
     @ColumnInfo(name = "prompt_tokens") val promptTokens: Int?,

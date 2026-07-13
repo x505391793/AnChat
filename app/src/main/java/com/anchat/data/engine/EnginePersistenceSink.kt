@@ -2,9 +2,7 @@ package com.anchat.data.engine
 
 import com.anchat.data.engine.BehaviorDao
 import com.anchat.data.local.dao.ConversationDao
-import com.anchat.data.local.dao.MessageDao
 import com.anchat.data.engine.RawReplyDao
-import com.anchat.data.local.entity.Message
 import com.anchat.engine.core.contract.Behavior
 import com.anchat.engine.core.contract.BehaviorType
 import com.anchat.engine.core.contract.ChatMessageRecord
@@ -14,16 +12,13 @@ import com.anchat.engine.spi.PersistenceSink
 
 /** 真实 PersistenceSink：把引擎的数据契约映射到 Room 实体 */
 class EnginePersistenceSink(
-    private val messageDao: MessageDao,
     private val conversationDao: ConversationDao,
     private val rawDao: RawReplyDao,
     private val behaviorDao: BehaviorDao
 ) : PersistenceSink {
 
     override suspend fun getHistory(conversationId: String): List<ChatMessageRecord> {
-        val cid = conversationId.toLongOrNull() ?: 0L
-        return messageDao.getByConversation(cid)
-            .filter { it.role == "user" || it.role == "assistant" }
+        return rawDao.getHistory(conversationId)
             .map {
                 ChatMessageRecord(
                     conversationId = conversationId,
@@ -39,6 +34,7 @@ class EnginePersistenceSink(
             RawReplyEntity(
                 id = raw.id,
                 conversationId = conversationId,
+                role = raw.role,
                 content = raw.content,
                 reasoningContent = raw.reasoningContent,
                 promptTokens = raw.usage?.promptTokens,
@@ -62,33 +58,15 @@ class EnginePersistenceSink(
                     rawId = it.rawId,
                     order = it.order,
                     type = it.type.value,
+                    role = it.role,
                     content = it.content,
                     duration = it.duration,
                     excuTime = it.excuTime,
                     status = it.status,
-                    conversationId = it.conversationId
+                    conversationId = it.conversationId,
+                    batchId = it.batchId
                 )
             }
-        )
-    }
-
-    override suspend fun persistAssistant(record: ChatMessageRecord): Long {
-        return messageDao.insert(
-            Message(
-                conversationId = record.conversationId.toLongOrNull() ?: 0L,
-                batchId = record.batchId,
-                role = record.role,
-                content = record.content,
-                reasoningContent = record.reasoningContent,
-                model = null,
-                promptTokens = record.usage?.promptTokens,
-                completionTokens = record.usage?.completionTokens,
-                totalTokens = record.usage?.totalTokens,
-                reasoningTokens = record.usage?.reasoningTokens,
-                promptCacheHitTokens = record.usage?.promptCacheHitTokens,
-                promptCacheMissTokens = record.usage?.promptCacheMissTokens,
-                hidden = record.hidden
-            )
         )
     }
 
@@ -112,11 +90,13 @@ class EnginePersistenceSink(
                 order = it.order,
                 type = enumValues<BehaviorType>().firstOrNull { t -> t.value == it.type }
                     ?: BehaviorType.SPEECH,
+                role = it.role,
                 content = it.content,
                 duration = it.duration,
                 excuTime = it.excuTime,
                 status = it.status,
-                conversationId = it.conversationId
+                conversationId = it.conversationId,
+                batchId = it.batchId
             )
         }
     }

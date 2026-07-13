@@ -10,9 +10,26 @@ interface RawReplyDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(raw: RawReplyEntity)
 
-    /** 按 id（即 batch_id）删除整批原始回复 */
+    /** 按 id 删除单条原始回复 */
     @Query("DELETE FROM raw_replies WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    /** 按对话 id 整清（删对话时联动） */
+    @Query("DELETE FROM raw_replies WHERE conversation_id = :conversationId")
+    suspend fun deleteByConversation(conversationId: String)
+
+    /**
+     * 拼请求上下文：取本对话下 user/assistant 的「真实对话」原文（排除 decomp 拆解源数据），
+     * 按发送时间升序。取代旧 messages 表读 hidden JSON。
+     */
+    @Query(
+        """SELECT * FROM raw_replies
+           WHERE conversation_id = :conversationId
+             AND role IN ('user','assistant')
+             AND kind <> 'decomp'
+           ORDER BY created_at ASC"""
+    )
+    suspend fun getHistory(conversationId: String): List<RawReplyEntity>
 
     /** 日志页分页：最新在前（created_at 倒序），offset 续拉 */
     @Query("SELECT * FROM raw_replies ORDER BY created_at DESC LIMIT :limit OFFSET :offset")

@@ -43,27 +43,24 @@ data class TokenUsage(
 data class RawReply(
     val id: String,                 // rawId
     val conversationId: String,
+    /** 发言方：user / assistant / system；与 API 的 role 字段对齐 */
+    val role: String = "assistant",
     val content: String,
     val reasoningContent: String? = null,
     val usage: TokenUsage? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val isError: Boolean = false,
-    /** 来源：chat=聊天AI回复, decomp=行为拆解API回复, system=系统级请求 */
+    /** 来源：chat=聊天AI回复, decomp=行为拆解API回复, system=系统级请求, greeting=开场白 */
     val kind: String = "chat"
 )
 
-/** 一条可落库 / 可渲染的对话消息记录 */
+/** 一条可落库 / 可渲染的对话消息记录（仅作引擎→推送预览的信号载体，不再落 messages 表） */
 data class ChatMessageRecord(
     val conversationId: String,
     val role: String,
     val content: String,
     val reasoningContent: String? = null,
-    val usage: TokenUsage? = null,
-    val batchId: String = "",
-    /** 落库后的自增主键，供单条删除精准定位（未落库时 -1） */
-    val id: Long = -1L,
-    /** 真实对话模式下为 true：该助手消息仅入库供上下文，不在聊天界面直接展示（由行为层驱动 UI） */
-    val hidden: Boolean = false
+    val usage: TokenUsage? = null
 )
 
 /** 对话上下文：引擎只读取，不负责解析凭证（由调用方填充） */
@@ -73,7 +70,7 @@ data class ConversationContext(
     val apiKey: String,
     val apiUrl: String,
     val systemPrompt: String? = null,
-    val batchId: String = "", // 同一回合关联键，等价于 rawId，用于整批删除
+    val batchId: String = "", // 引擎回合取消键（= 用户 raw.id），与 raw/behavior 的 batch_id 无关
     /** 是否开启「真实对话」：开启则原始回复进入行为拆解 API，否则直接返回单条行为 */
     val realConversation: Boolean = false,
     /** 真实对话版本：开启后具体走哪条行为生成路径（见 RealConvVersion）；默认 v1 */

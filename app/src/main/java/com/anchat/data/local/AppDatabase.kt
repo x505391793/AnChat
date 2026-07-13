@@ -12,24 +12,21 @@ import com.anchat.data.engine.RawReplyDao
 import com.anchat.data.engine.RawReplyEntity
 import com.anchat.data.local.dao.CharacterDao
 import com.anchat.data.local.dao.ConversationDao
-import com.anchat.data.local.dao.MessageDao
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Conversation
-import com.anchat.data.local.entity.Message
 
 @Database(
     entities = [
-        Conversation::class, Message::class, CharacterEntity::class,
+        Conversation::class, CharacterEntity::class,
         RawReplyEntity::class, BehaviorEntity::class
     ],
-    version = 19,
+    version = 21,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun characterDao(): CharacterDao
     abstract fun conversationDao(): ConversationDao
-    abstract fun messageDao(): MessageDao
     abstract fun rawReplyDao(): RawReplyDao
     abstract fun behaviorDao(): BehaviorDao
 
@@ -126,6 +123,92 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 
+    // v19 → v20：数据层重构——messages 表退役，raw_replies/behaviors 升级为统一消息表。
+    // 旧三表关系断裂（messages↔raw_replies 无外键、raw/behaviors 只存 AI），
+    // 无法完美迁移，故按「重建」策略：DROP 三表后按新实体 schema 原样重建
+    // raw_replies(含 role/batch_id) 与 behaviors(含 role/batch_id)，空表起步。
+    // 这是有意为之的显式迁移（符合「缺迁移即崩」铁律，副作用清数据已授权）。
+    private val MIGRATION_19_20 = object : Migration(19, 20) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DROP TABLE IF EXISTS messages")
+            db.execSQL("DROP TABLE IF EXISTS raw_replies")
+            db.execSQL("DROP TABLE IF EXISTS behaviors")
+
+            db.execSQL(
+                """CREATE TABLE raw_replies (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    conversation_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    reasoning_content TEXT,
+                    prompt_tokens INTEGER,
+                    completion_tokens INTEGER,
+                    total_tokens INTEGER,
+                    reasoning_tokens INTEGER,
+                    prompt_cache_hit_tokens INTEGER,
+                    prompt_cache_miss_tokens INTEGER,
+                    is_error INTEGER NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'chat',
+                    batch_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )"""
+            )
+
+            db.execSQL(
+                """CREATE TABLE behaviors (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    raw_id TEXT NOT NULL,
+                    `order` INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    duration TEXT,
+                    excu_time INTEGER NOT NULL,
+                    status INTEGER NOT NULL DEFAULT 0,
+                    conversation_id TEXT NOT NULL DEFAULT '',
+                    batch_id TEXT NOT NULL DEFAULT ''
+                )"""
+            )
+        }
+    }
+
+        // v20 → v21：删除 raw_replies.batch_id 列（生数据层是源头，不需要「批次」标记；
+        // batch_id 仅属行为层，= 源 raw.id）。SQLite 不支持 DROP COLUMN，
+        // 走「改名旧表 → 建无该列新表 → 回填 → 删旧表」四步。
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE raw_replies RENAME TO raw_replies_old")
+                db.execSQL(
+                    """CREATE TABLE raw_replies (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        conversation_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        reasoning_content TEXT,
+                        prompt_tokens INTEGER,
+                        completion_tokens INTEGER,
+                        total_tokens INTEGER,
+                        reasoning_tokens INTEGER,
+                        prompt_cache_hit_tokens INTEGER,
+                        prompt_cache_miss_tokens INTEGER,
+                        is_error INTEGER NOT NULL,
+                        kind TEXT NOT NULL DEFAULT 'chat',
+                        created_at INTEGER NOT NULL
+                    )"""
+                )
+                db.execSQL(
+                    """INSERT INTO raw_replies (id, conversation_id, role, content, reasoning_content,
+                           prompt_tokens, completion_tokens, total_tokens, reasoning_tokens,
+                           prompt_cache_hit_tokens, prompt_cache_miss_tokens, is_error, kind, created_at)
+                       SELECT id, conversation_id, role, content, reasoning_content,
+                              prompt_tokens, completion_tokens, total_tokens, reasoning_tokens,
+                              prompt_cache_hit_tokens, prompt_cache_miss_tokens, is_error, kind, created_at
+                       FROM raw_replies_old"""
+                )
+                db.execSQL("DROP TABLE raw_replies_old")
+            }
+        }
+
     @Volatile
     private var INSTANCE: AppDatabase? = null
 
@@ -136,7 +219,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DB_NAME
             )
-            .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+            .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
             .build().also { INSTANCE = it }
         }
     }

@@ -11,7 +11,6 @@ import com.anchat.AnChatApplication
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.engine.core.contract.RealConvVersion
 import com.anchat.data.local.entity.Conversation
-import com.anchat.data.local.entity.Message
 import com.anchat.engine.core.ConversationEngine
 import com.anchat.engine.core.contract.Behavior
 import com.anchat.engine.core.contract.BehaviorType
@@ -129,20 +128,9 @@ class ChatViewModel(
             engineEvents.collect { event ->
                 when (event) {
                     is EngineEvent.AssistantMessage -> {
-                        if (event.record.hidden) {
-                            // 真实对话：原始整段回复仅入库供上下文，不进展示列表，仅清 loading
-                            _isLoading.value = false
-                        } else {
-                            _messages.value = _messages.value +
-                                ChatMessage(
-                                    "assistant",
-                                    event.record.content,
-                                    event.record.reasoningContent,
-                                    event.record.batchId,
-                                    id = event.record.id
-                                )
-                            _isLoading.value = false
-                        }
+                        // 仅作「响应已到达 → 清 loading」信号；
+                        // 真实气泡由行为层（BehaviorDue）驱动，不在此进展示列表。
+                        _isLoading.value = false
                     }
 
                     is EngineEvent.BehaviorDue -> {
@@ -187,7 +175,6 @@ class ChatViewModel(
         }
         if (convId >= 0) {
             viewModelScope.launch {
-                val stored = localRepo.getMessages(convId)
                 // 角色卡对话：按 characterId 恢复主角色卡（仅作快照回退）
                 val charId = localRepo.getConversation(convId)?.characterId ?: -1L
                 val character = if (charId >= 0) localRepo.getCharacter(charId) else null
@@ -201,10 +188,10 @@ class ChatViewModel(
                 _conversationId.value = convId
                 // _conversationId 已是 convId，上面的 observe 会接管 profile
 
-                // 真实对话：初始列表由「可见消息 + 已完成行为」按时序合并；
+                // 初始列表 = 该对话已完成行为（含 user 行 READ，按时间序合并）；
                 // 后续行为由调度器经 engineEvents(BehaviorDue) 实时推送，无需在此挂观察
                 val realConv = isRealConvConversation(convId)
-                _messages.value = buildInitialDisplay(convId, realConv, stored)
+                _messages.value = buildInitialDisplay(convId, realConv)
             }
         }
         // 从角色名片新建对话：加载角色卡，有开场白时建对话并快照身份
@@ -221,17 +208,12 @@ class ChatViewModel(
                         conversationId = newId
                         _conversationId.value = newId
                         ActiveConversation.set(newId)
-                        val greetingBatch = UUID.randomUUID().toString()
-                        localRepo.insertMessage(
-                            Message(
-                                conversationId = newId,
-                                role = "assistant",
-                                content = greeting,
-                                batchId = greetingBatch
-                            )
-                        )
+                        val greetingRawId = UUID.randomUUID().toString()
+                        val greetingBehaviorId = localRepo.persistGreeting(newId, greeting, greetingRawId)
                         localRepo.markRead(newId) // 开场白立即展示，视为已读，避免列表误显红点
-                        _messages.value = listOf(ChatMessage("assistant", greeting, batchId = greetingBatch))
+                        _messages.value = listOf(
+                            ChatMessage("assistant", greeting, batchId = greetingRawId, behaviorId = greetingBehaviorId)
+                        )
                         applyProfile(conv, character)
                         // 真实对话：开场白之后的回复由行为层（调度器经 engineEvents）驱动，无需挂观察
                     }
@@ -403,7 +385,7 @@ class ChatViewModel(
         val character = currentCharacter
         val existingConvId = conversationId
         val existingSystemPrompt = buildSystemPrompt()
-        val batchId = UUID.randomUUID().toString()
+        val userRawId = UUID.randomUUID().toString()
 
         // 引擎编排（建对话→存用户消息→engine.send）放到 Application 级 engineScope，
         // 不随 ViewModel 生命周期绑定——用户退出页面或退到桌面后请求仍能完成。
@@ -425,16 +407,15 @@ class ChatViewModel(
             applyProfile(conv, character)
             val systemPrompt = existingSystemPrompt ?: buildSystemPrompt()
 
-            // 先落库拿自增 id，再带 id 上屏——保证长按删除能精准定位这一句
-            val userMsgId = try {
-                localRepo.insertMessage(
-                    Message(conversationId = convId, role = "user", content = text, batchId = batchId)
-                )
+            // 用户消息统一写 raw_replies + behaviors（behaviors 即真正消息表），
+            // 返回的 behaviorId 供长按删除精准定位这一句。
+            val userBehaviorId = try {
+                localRepo.persistUserTurn(convId, text, userRawId, System.currentTimeMillis())
             } catch (e: Exception) {
                 Log.w(TAG, "保存用户消息失败: ${e.message}")
-                -1L
+                null
             }
-            _messages.value = _messages.value + ChatMessage("user", text, batchId = batchId, id = userMsgId)
+            _messages.value = _messages.value + ChatMessage("user", text, batchId = userRawId, behaviorId = userBehaviorId)
 
             // 真实对话：开关纯标志（版本决定是否真需要管理 AI）；v2 主请求直接产出 JSON，无需第二模型
             val decompSpec = buildDecompSpec()
@@ -446,7 +427,7 @@ class ChatViewModel(
                 modelId = modelId,
                 apiKey = apiKey,
                 apiUrl = apiUrl ?: "",
-                batchId = batchId,
+                batchId = userRawId,
                 realConversation = realConv,
                 realConvVersion = conv?.charRealConvVersion ?: character?.realConvVersion ?: RealConvVersion.DEFAULT,
                 decompSpec = decompSpec
@@ -456,23 +437,13 @@ class ChatViewModel(
     }
 
     /** 只删当前长按的那一条气泡（按 DB 主键），不波及同回合其它消息，也不取消正在进行的回合 */
-    fun deleteMessage(messageId: Long) {
-        if (messageId < 0) return
+    /** 只删当前长按的那一条气泡（按 behaviorId），不波及同回合其它消息，也不取消正在进行的回合 */
+    fun deleteMessage(behaviorId: String) {
+        if (behaviorId.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
-            localRepo.deleteMessage(messageId)
+            localRepo.deleteMessage(behaviorId)
         }
-        _messages.value = _messages.value.filter { it.id != messageId }
-    }
-
-    /** 删除一个回合的全部数据：消息（用户提问+AI回复）+ 原始回复 + 行为 */
-    fun deleteBatch(batchId: String?) {
-        if (batchId.isNullOrBlank()) return
-        engine.cancel(batchId)
-        RequestForegroundService.finish(getApplication())
-        viewModelScope.launch(Dispatchers.IO) {
-            localRepo.deleteBatch(batchId)
-        }
-        _messages.value = _messages.value.filter { it.batchId != batchId }
+        _messages.value = _messages.value.filter { it.behaviorId != behaviorId }
     }
 
     fun clearError() {
@@ -503,7 +474,7 @@ class ChatViewModel(
 
     /** 行为 → 聊天展示消息（speech/emotion/leave 由 ChatScreen 按 behaviorType 区分渲染） */
     private fun behaviorToChatMessage(b: Behavior): ChatMessage = ChatMessage(
-        role = "behavior",
+        role = b.role,
         content = b.content,
         batchId = b.rawId,
         behaviorId = b.behaviorId,
@@ -512,24 +483,14 @@ class ChatViewModel(
     )
 
     /**
-     * 初始展示列表：可见消息（用户 + 非隐藏助手，如开场白）+ 已完成行为，按时间序合并。
-     * 真实对话模式下隐藏「原始整段回复」（已入库供上下文），改由行为层数据呈现。
+     * 初始展示列表 = 该对话已完成行为（含 user 行 READ），按执行时间序合并。
+     * 全部模式统一由行为层驱动 UI（气泡只来自 behaviors 表；user/assistant 同表）。
      */
     private suspend fun buildInitialDisplay(
         convId: Long,
-        realConv: Boolean,
-        messages: List<Message>
+        realConv: Boolean
     ): List<ChatMessage> {
         val items = mutableListOf<Pair<Long, ChatMessage>>()
-        messages
-            .filter { it.role == "user" || (it.role == "assistant" && !it.hidden) }
-            .forEach { m ->
-                items += Pair(
-                    m.createdAt,
-                    ChatMessage(m.role, m.content, m.reasoningContent, m.batchId, id = m.id)
-                )
-            }
-        // 所有模式统一由行为层驱动 UI（气泡只来自行为层；问候语仍经 messages 表 hidden=false 加载）
         val behaviors = localRepo.getCompletedBehaviors(convId)
         shownBehaviorIds += behaviors.map { it.behaviorId }
         behaviors.forEach { b ->

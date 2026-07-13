@@ -76,10 +76,12 @@ class BehaviorDecomposer(private val requestSink: RequestSink) {
         }
         // 落库：拆解 API 的原始返回也记入 raw_replies（kind=decomp），便于审计/回溯；
         // 无对话上下文时 conversationId 填系统标识 "system"
+        val decompRawId = UUID.randomUUID().toString()
         persistence.persistRaw(
             RawReply(
-                id = UUID.randomUUID().toString(),
+                id = decompRawId,
                 conversationId = convId,
+                role = "assistant",
                 content = reply.content,
                 reasoningContent = reply.reasoningContent,
                 usage = reply.usage,
@@ -123,11 +125,13 @@ class BehaviorDecomposer(private val requestSink: RequestSink) {
                 rawId = rawId,
                 order = ev.order,
                 type = type,
+                role = "assistant",
                 content = ev.content,
                 duration = if (type == BehaviorType.LEAVE) ev.duration else null,
                 excuTime = cursor,
                 status = Behavior.STATUS_PENDING,
-                conversationId = conversationId
+                conversationId = conversationId,
+                batchId = rawId
             )
             // 每种行为占用一段间隔，让行为分时依次出现（模拟真人节奏）。
             // leave 的 duration（如「10分钟」）作为「离开时长」追加在自身之后，
@@ -136,6 +140,7 @@ class BehaviorDecomposer(private val requestSink: RequestSink) {
                 BehaviorType.SPEECH -> max(600L, (ev.content.length * 50L).coerceAtMost(4000L))
                 BehaviorType.EMOTION -> 800L
                 BehaviorType.LEAVE -> 500L + parseDurationToMs(ev.duration)
+                BehaviorType.TEXT -> 0L
             }
             behavior
         }

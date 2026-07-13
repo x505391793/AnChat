@@ -18,9 +18,11 @@ class ReplyAnalyzer {
                 rawId = raw.id,
                 order = 0,
                 type = BehaviorType.SPEECH,
+                role = "assistant",
                 content = raw.content,
                 excuTime = System.currentTimeMillis(),
-                status = Behavior.STATUS_PENDING
+                status = Behavior.STATUS_PENDING,
+                batchId = raw.id
             )
         )
     }
