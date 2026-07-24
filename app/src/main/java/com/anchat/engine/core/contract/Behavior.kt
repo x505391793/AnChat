@@ -15,12 +15,10 @@ enum class SpeechStatus(val value: String) {
 }
 
 /**
- * 单条行为：行为表 = 同一 rawId 下的所有 Behavior 行。
- * 无需独立「表实体」/ 映射表，rawId 即 raw↔behavior 映射。
+ * 单条行为。batchId = 源 raw.id，兼作 FK。
  */
 data class Behavior(
     val behaviorId: String,       // 主 id（PK）
-    val rawId: String,            // 副 id（FK → RawReply，兼作映射）
     val order: Int,               // 执行顺序
     val type: BehaviorType,       // 行为类型
     /** 发言方：user / assistant；与 API 的 role 字段对齐（不再写死 "behavior"） */
@@ -33,10 +31,11 @@ data class Behavior(
     val status: Int = STATUS_PENDING,
     /** 所属对话 id（与 ConversationContext.conversationId 同值）；用于行为事件按对话隔离，避免串台 */
     val conversationId: String = "",
-    /** 整回合关联键（= turnId = AI raw id）；用于整批删除用户+AI 数据 */
+    /** 源 raw.id，兼作 FK 与同源聚合键 */
     val batchId: String = ""
 ) {
     companion object {
+        const val STATUS_QUEUED = -1   // 用户已输入，等待批次发送
         const val STATUS_PENDING = 0   // 未到点执行（待播，调度器还没轮到）
         const val STATUS_SENT = 1      // 已执行、未读（调度器翻牌并推到前端，用户尚未查看）
         const val STATUS_READ = 2      // 已读（用户实际看过该行为）

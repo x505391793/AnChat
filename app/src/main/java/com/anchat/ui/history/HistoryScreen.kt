@@ -53,7 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
-import com.anchat.data.local.entity.Conversation
+import com.anchat.data.local.entity.ConversationListItem
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -127,7 +127,7 @@ fun HistoryScreen(navController: NavHostController) {
 
 @Composable
 private fun ConversationItem(
-    conversation: Conversation,
+    conversation: ConversationListItem,
     unreadCount: Int = 0,
     onClick: () -> Unit,
     onPin: () -> Unit,
@@ -206,7 +206,7 @@ private fun ConversationItem(
 
 @Composable
 private fun ConversationRowContent(
-    conversation: Conversation,
+    conversation: ConversationListItem,
     unreadCount: Int = 0,
     onClick: () -> Unit
 ) {

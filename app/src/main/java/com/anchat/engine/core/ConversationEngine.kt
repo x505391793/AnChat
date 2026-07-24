@@ -16,6 +16,7 @@ import com.anchat.engine.sender.UserMessageInterceptor
 import com.anchat.engine.spi.EngineSink
 import com.anchat.engine.spi.PersistenceSink
 import com.anchat.engine.spi.RequestSink
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -44,6 +45,7 @@ class ConversationEngine(
         val job = scope.launch {
             try {
                 val processed = interceptor.process(input)
+                Log.d("ANCHAT_ENGINE", "send() TurnInput=[${input.text}] conv=${context.conversationId} batchId=${context.batchId}")
                 val history = persistenceSink.getHistory(context.conversationId)
                 val spec = requestBuilder.buildSpec(context, history)
                 val rawId = java.util.UUID.randomUUID().toString()
@@ -99,15 +101,8 @@ class ConversationEngine(
                 persistenceSink.persistBehaviors(behaviors)
                 scheduler.onPersisted(raw.id)
 
-                // 列表预览取本批行为中「最后一条可见说话(speech)」的内容：
-                // 末尾若是 leave(离开) / emotion(表情包) 则往前取，确保对应最后看到的文字气泡，
-                // 而非整段回复开头——旧逻辑 raw.content.take(50) 显示的是这一批的第一条。
-                val previewText = behaviors
-                    .lastOrNull { it.type == BehaviorType.SPEECH }
-                    ?.content
-                    ?: behaviors.lastOrNull()?.content
-                    ?: raw.content
-
+                // 列表预览改为实时联查（ConversationDao 子查询取最后一条可读消息），
+                // 不再在此写回持久化 preview 列，避免「AI 已回复但预览仍是用户消息」的 stale。
                 if (!raw.isError) {
                     val rec = ChatMessageRecord(
                         conversationId = context.conversationId,
@@ -116,7 +111,6 @@ class ConversationEngine(
                         reasoningContent = raw.reasoningContent,
                         usage = raw.usage
                     )
-                    persistenceSink.updatePreview(context.conversationId, previewText.take(50))
                     // 始终 emit：仅作「响应已到达 → 清 loading」信号，
                     // 实际气泡由行为层（BehaviorDue）驱动，不在此进展示列表。
                     engineSink.emit(EngineEvent.AssistantMessage(rec))

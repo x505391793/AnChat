@@ -55,7 +55,6 @@ class EnginePersistenceSink(
             behaviors.map {
                 BehaviorEntity(
                     id = it.behaviorId,
-                    rawId = it.rawId,
                     order = it.order,
                     type = it.type.value,
                     role = it.role,
@@ -70,10 +69,6 @@ class EnginePersistenceSink(
         )
     }
 
-    override suspend fun updatePreview(conversationId: String, preview: String) {
-        conversationDao.updatePreview(conversationId.toLongOrNull() ?: 0L, preview)
-    }
-
     override suspend fun markCompleted(behaviorId: String) {
         behaviorDao.markCompleted(behaviorId)
     }
@@ -86,7 +81,6 @@ class EnginePersistenceSink(
         return behaviorDao.getDue().map {
             Behavior(
                 behaviorId = it.id,
-                rawId = it.rawId,
                 order = it.order,
                 type = enumValues<BehaviorType>().firstOrNull { t -> t.value == it.type }
                     ?: BehaviorType.SPEECH,

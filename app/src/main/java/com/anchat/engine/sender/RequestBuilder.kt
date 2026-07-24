@@ -6,6 +6,7 @@ import com.anchat.engine.core.contract.ChatMessageRecord
 import com.anchat.engine.core.contract.RealConvVersion
 import com.anchat.engine.core.contract.RequestSpec
 import com.anchat.engine.core.contract.TurnInput
+import android.util.Log
 
 /**
  * 用户消息的 Pre 拦截器（保留空接口）。
@@ -51,6 +52,11 @@ class RequestBuilder {
         // v2：主请求即要求 JSON 输出（DeepSeek 需显式声明 response_format）
         val isDeepseek = context.modelId.contains("deepseek", ignoreCase = true)
         val responseFormat = if (isV2 && isDeepseek) "json_object" else null
+        Log.d("ANCHAT_REQ", "=== buildSpec: conversation=${context.conversationId} historySize=${history.size} ===")
+        history.forEachIndexed { i, h ->
+            Log.d("ANCHAT_REQ", "[history#$i] role=${h.role} content=${h.content.take(60)}")
+        }
+        Log.d("ANCHAT_REQ", "system=${systemText?.take(80)} responseFormat=$responseFormat")
         return RequestSpec(
             model = context.modelId,
             apiKey = context.apiKey,

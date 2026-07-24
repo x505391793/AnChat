@@ -10,6 +10,7 @@ import com.anchat.data.engine.RawReplyDao
 import com.anchat.data.engine.RawReplyTotals
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Conversation
+import com.anchat.data.local.entity.ConversationListItem
 import com.anchat.engine.core.contract.Behavior
 import com.anchat.engine.core.contract.BehaviorType
 import com.anchat.engine.core.contract.RawReply
@@ -27,13 +28,12 @@ class LocalRepository(
     private val behaviorDao: BehaviorDao
 ) {
     // ─── 对话 ────────────────────────────────────────
-    fun observeConversations(): Flow<List<Conversation>> = conversationDao.observeAll()
+    fun observeConversations(): Flow<List<ConversationListItem>> = conversationDao.observeAll()
     suspend fun getConversation(id: Long): Conversation? = conversationDao.getById(id)
     fun observeConversation(id: Long): Flow<Conversation?> = conversationDao.observeById(id)
     suspend fun createConversation(conv: Conversation): Long = conversationDao.insert(conv)
     suspend fun updateConversation(conv: Conversation) = conversationDao.update(conv)
     suspend fun renameConversation(id: Long, title: String) = conversationDao.rename(id, title)
-    suspend fun updatePreview(id: Long, preview: String) = conversationDao.updatePreview(id, preview)
     suspend fun setStar(id: Long, isStar: Boolean) = conversationDao.setStar(id, isStar)
     suspend fun setPinned(id: Long, pinned: Boolean) = conversationDao.setPinned(id, pinned)
 
@@ -76,7 +76,6 @@ class LocalRepository(
                 listOf(
                     BehaviorEntity(
                         id = userBehaviorId,
-                        rawId = userRawId,
                         order = 0,
                         type = BehaviorType.TEXT.value,
                         role = "user",
@@ -124,7 +123,6 @@ class LocalRepository(
                 listOf(
                     BehaviorEntity(
                         id = greetingBehaviorId,
-                        rawId = greetingRawId,
                         order = 0,
                         type = BehaviorType.TEXT.value,
                         role = "assistant",
@@ -141,11 +139,69 @@ class LocalRepository(
         return greetingBehaviorId
     }
 
+    /**
+     * 排队模式：只写 behaviors(status=-1)，不落 raw、不发引擎。
+     * @return behaviorId
+     */
+    suspend fun persistQueuedUserTurn(convId: Long, text: String, sendTime: Long): String {
+        val behaviorId = UUID.randomUUID().toString()
+        behaviorDao.insertAll(
+            listOf(
+                BehaviorEntity(
+                    id = behaviorId,
+                    order = 0,
+                    type = BehaviorType.TEXT.value,
+                    role = "user",
+                    content = text,
+                    excuTime = sendTime,
+                    status = Behavior.STATUS_QUEUED,
+                    conversationId = convId.toString()
+                )
+            )
+        )
+        return behaviorId
+    }
+
+    /**
+     * 将对话下全部排队消息打包成一条 raw_replies。
+     * @return Pair(rawId, combinedText)，null 表示队列为空
+     */
+    suspend fun flushQueue(convId: Long): Pair<String, String>? {
+        val queued = behaviorDao.getQueuedByConversation(convId.toString())
+        if (queued.isEmpty()) return null
+        val rawId = UUID.randomUUID().toString()
+        val combined = queued.joinToString("\n") { it.content }
+        val now = System.currentTimeMillis()
+        database.withTransaction {
+            rawReplyDao.insert(
+                RawReplyEntity(
+                    id = rawId,
+                    conversationId = convId.toString(),
+                    role = "user",
+                    content = combined,
+                    reasoningContent = null,
+                    promptTokens = null,
+                    completionTokens = null,
+                    totalTokens = null,
+                    reasoningTokens = null,
+                    promptCacheHitTokens = null,
+                    promptCacheMissTokens = null,
+                    isError = false,
+                    kind = "chat",
+                    createdAt = now
+                )
+            )
+            behaviorDao.markQueuedAsSent(convId.toString(), rawId)
+        }
+        return rawId to combined
+    }
+
     /** 删除一个批次（一条 raw 下的全部行为 + 该 raw）；按 behaviorId 定位源 raw */
     suspend fun deleteMessage(behaviorId: String) {
         database.withTransaction {
             val b = behaviorDao.getById(behaviorId) ?: return@withTransaction
-            val rawId = b.batchId // = 源 raw.id
+            val convId = b.conversationId
+            val rawId = b.batchId
             behaviorDao.deleteByBatchId(rawId)
             rawReplyDao.deleteById(rawId)
         }
@@ -155,11 +211,13 @@ class LocalRepository(
     suspend fun deleteBatch(behaviorId: String) {
         database.withTransaction {
             val b = behaviorDao.getById(behaviorId) ?: return@withTransaction
-            val rawId = b.batchId // = 源 raw.id
+            val convId = b.conversationId
+            val rawId = b.batchId
             behaviorDao.deleteByBatchId(rawId)
             rawReplyDao.deleteById(rawId)
         }
     }
+
 
     /** 打开会话清未读：把该对话下所有「已执行未读」行为翻为已读（status 1 → 2） */
     suspend fun markRead(conversationId: Long) =
@@ -174,7 +232,6 @@ class LocalRepository(
     // ─── 行为（真实对话分时推送） ─────────────────
     private fun BehaviorEntity.toBehavior() = Behavior(
         behaviorId = id,
-        rawId = rawId,
         order = order,
         type = enumValues<BehaviorType>().firstOrNull { it.value == type } ?: BehaviorType.SPEECH,
         role = role,
@@ -195,6 +252,10 @@ class LocalRepository(
     /** 进入对话时的初始加载：取已完成行为 */
     suspend fun getCompletedBehaviors(conversationId: Long): List<Behavior> =
         behaviorDao.getCompletedByConversation(conversationId.toString()).map { it.toBehavior() }
+
+    /** 取排队中的行为（status=-1），进入对话时加载展示 */
+    suspend fun getQueuedBehaviors(conversationId: Long): List<Behavior> =
+        behaviorDao.getQueuedByConversation(conversationId.toString()).map { it.toBehavior() }
 
     /** 对话打开：把该对话下所有「已执行未读」行为翻为已读（status 1 → 2） */
     suspend fun markBehaviorsRead(conversationId: Long) =

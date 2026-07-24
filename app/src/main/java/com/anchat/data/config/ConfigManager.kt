@@ -60,6 +60,17 @@ class ConfigManager(private val context: Context) {
         persist { cfg -> cfg.copy(notificationsEnabled = enabled) }
     }
 
+    // ─── 开发者模式 ───────────────────────────
+    private val _developerMode = MutableStateFlow(load().developerMode)
+    val developerModeFlow: StateFlow<Boolean> = _developerMode.asStateFlow()
+
+    fun getDeveloperMode(): Boolean = _developerMode.value
+
+    fun setDeveloperMode(enabled: Boolean) {
+        _developerMode.value = enabled
+        persist { cfg -> cfg.copy(developerMode = enabled) }
+    }
+
     // ─── 模型（含各自的 apiKey / apiUrl） ─────────
     private val _models = MutableStateFlow(load().models)
     val modelsFlow: StateFlow<List<ModelConfig>> = _models.asStateFlow()
@@ -126,6 +137,7 @@ class ConfigManager(private val context: Context) {
         _chatModelId.value = cfg.chatModelId
         _realConversationModelId.value = cfg.realConversationModelId
         _notificationsEnabled.value = cfg.notificationsEnabled
+        _developerMode.value = cfg.developerMode
     }
 
     /**
@@ -141,6 +153,7 @@ class ConfigManager(private val context: Context) {
         _chatModelId.value = newConfig.chatModelId
         _realConversationModelId.value = newConfig.realConversationModelId
         _notificationsEnabled.value = newConfig.notificationsEnabled
+        _developerMode.value = newConfig.developerMode
     }
 
     /** SAF tree URI if the user picked a custom directory. Null = File mode. */

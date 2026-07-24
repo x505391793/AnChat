@@ -3,6 +3,7 @@ package com.anchat.ui.chat
 import android.app.Application
 import android.util.Log
 import android.widget.Toast
+import kotlin.jvm.Volatile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -22,15 +23,23 @@ import com.anchat.push.ActiveConversation
 import com.anchat.service.RequestForegroundService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.UUID
 import kotlin.random.Random
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /** 打字占位时长：每字毫秒（取折中值，后续可按手感调整）；最终再叠 ±10% 随机浮动。 */
 private const val TYPING_PER_CHAR_MS = 50L
+
+/** 自动触发计时：输入框失焦且键盘收起后等待 5 秒无变化则触发 */
+private const val AUTO_TRIGGER_DELAY_MS = 5000L
 
 data class ChatMessage(
     val role: String,
@@ -94,12 +103,101 @@ class ChatViewModel(
     private val _profile = MutableStateFlow<ConversationProfile?>(null)
     val profile: StateFlow<ConversationProfile?> = _profile.asStateFlow()
 
+    /** 排队模式：真实对话开启「且」开发者模式开启时，用户消息只进队列，等 trigger 打包发送。
+     *  开发者模式关闭则视为普通对话，直接调用 API 发送（测试用的排队/触发/模拟推送全部停用）。 */
+    val isQueueMode: StateFlow<Boolean> = combine(_profile, configManager.developerModeFlow) { profile, dev ->
+        val v = (profile?.realConversation == true) && dev
+        Log.d("ANCHAT_QUEUE", "realConversation=${profile?.realConversation} dev=$dev -> isQueueMode=$v")
+        v
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // ── 自动触发（排队模式）──
+    /** true = 用户正在输入（输入框聚焦或键盘弹出）；false = 空闲 */
+    private var inputEverFocused = false
+    private var triggerJob: Job? = null
+    /** 聊天页是否还活着（未 onCleared）。开发者模式测试气泡等纯 UI 行为依赖此标志，退出后不更新死 StateFlow；
+     *  自动触发/flush 不依赖它，仍挂在 engineScope 跑。 */
+    private var isScreenActive = true
+    /** 内存中已排队（待推送）的用户消息计数，用于校验 DB 是否已落库最新数据 */
+    @Volatile private var pendingQueueCount = 0
+    /** 数据库未追上时的重试次数，避免无限重试 */
+    @Volatile private var staleRetryCount = 0
+    private val MAX_STALE_RETRY = 3
+
+    /**
+     * 由 UI 上报输入区活跃状态。
+     * 活跃（聚焦/键盘弹出）→ 取消计时；空闲且为排队模式 → 5 秒后自动触发。
+     */
+    fun setInputActive(active: Boolean) {
+        if (active) {
+            inputEverFocused = true
+            triggerJob?.cancel()
+            triggerJob = null
+            return
+        }
+        // 初始未聚焦过 / 非真实对话：不计时。
+        // 自动触发是「真实对话」下的常驻功能，不绑定开发者模式；开发者模式只决定触发后是模拟还是真发。
+        if (!inputEverFocused) return
+        if (_profile.value?.realConversation != true) return
+        triggerJob?.cancel()
+        // 计时挂在应用级 engineScope：退出聊天页后 ViewModel 销毁也不会中断，
+        // 保证「发送后立刻退出」仍能在 5 秒后自动打包发送（真实对话常驻功能）。
+        triggerJob = anchatApp.engineScope.launch {
+            delay(AUTO_TRIGGER_DELAY_MS)
+            fireTrigger()
+        }
+    }
+
+    /**
+     * 统一触发入口：手动按钮与自动计时都走这里。
+     * 开发者模式开启 = 测试模拟：只弹一句气泡「自动触发了推送」，不发送任何 API；
+     * 开发者模式关闭 = 正常流程：打包排队消息直接调用 API 发送（flushQueue）。
+     * 双重保障 1：用户没发过气泡（DB 队列为空）则直接进入推送任何东西。
+     */
+    fun fireTrigger() {
+        val convId = conversationId ?: return
+        // 挂在 engineScope：退出聊天页后仍能完成「打包→发 API→行为层拆解」，
+        // 普通（非真实）对话不进此路径（setInputActive 已按 realConversation 拦截）。
+        anchatApp.engineScope.launch(Dispatchers.IO) {
+            // 双重保障 1：DB 中无排队气泡就不进入推送（含测试模拟）
+            if (localRepo.getQueuedBehaviors(convId).isEmpty()) {
+                Log.d("ANCHAT_TRIGGER", "fireTrigger: 无排队气泡，跳过触发")
+                return@launch
+            }
+            withContext(Dispatchers.Main) {
+                if (configManager.getDeveloperMode()) {
+                    // 测试模拟气泡：仅聊天页还活着时显示，退出后不刷死 StateFlow
+                    if (isScreenActive) {
+                        _messages.value = _messages.value + ChatMessage("system", "自动触发了推送")
+                    }
+                    return@withContext
+                }
+                flushQueue()
+            }
+        }
+    }
+
     /** 当前对话真实 id 的响应式版本，供 UI 判断头像是否可点击进编辑 */
     private val _conversationId = MutableStateFlow<Long?>(if (convId >= 0) convId else null)
     val conversationIdFlow: StateFlow<Long?> = _conversationId.asStateFlow()
 
     /** 当前选中的主角色卡（仅作快照回退来源），null = 无角色（用主身份） */
     private var currentCharacter: CharacterEntity? = null
+
+    /** 构造参数里的角色卡 id（构造参数非属性，单独存一份供 send 异步回退取卡） */
+    private val characterIdArg: Long = characterId
+
+    /**
+     * 确保 currentCharacter 已就绪：init 的异步 setCharacter 可能尚未完成，
+     * 此时从构造参数 characterIdArg 重新取出角色卡。避免「从角色卡发消息」时
+     * currentCharacter 为 null 导致用户身份/角色信息被全局设置覆盖。
+     */
+    private suspend fun resolveCharacter(): CharacterEntity? {
+        if (currentCharacter == null && characterIdArg >= 0) {
+            currentCharacter = localRepo.getCharacter(characterIdArg)
+        }
+        return currentCharacter
+    }
 
     init {
         viewModelScope.launch {
@@ -176,10 +274,25 @@ class ChatViewModel(
         if (convId >= 0) {
             viewModelScope.launch {
                 // 角色卡对话：按 characterId 恢复主角色卡（仅作快照回退）
-                val charId = localRepo.getConversation(convId)?.characterId ?: -1L
+                val conv = localRepo.getConversation(convId)
+                val charId = conv?.characterId ?: -1L
                 val character = if (charId >= 0) localRepo.getCharacter(charId) else null
                 setCharacter(character)
                 _title.value = character?.name ?: "AnChat"
+                // 进入对话：若用户身份未在对话内主动改过（userIdentityOverridden != true），
+                // 且快照里用户字段有空缺，则把「解析后的用户身份」（角色卡优先、否则全局主身份）
+                // 烤进对话快照——此后对话框只依赖快照，不再读取全局设置。
+                if (conv != null && conv.userIdentityOverridden != true) {
+                    val seedName = character?.userName ?: configManager.getDefaultUserName().ifBlank { null }
+                    val seedAvatar = character?.userAvatar ?: configManager.getDefaultUserAvatar().ifBlank { null }
+                    val seedDesc = character?.userDescription ?: configManager.getDefaultUserDescription().ifBlank { null }
+                    val filled = conv.copy(
+                        userName = conv.userName?.ifBlank { null } ?: seedName,
+                        userAvatar = conv.userAvatar?.ifBlank { null } ?: seedAvatar,
+                        userDescription = conv.userDescription?.ifBlank { null } ?: seedDesc
+                    )
+                    if (filled != conv) localRepo.updateConversation(filled)
+                }
                 // 打开既有会话：标记当前会话 + 清未读（红点消失）
                 ActiveConversation.set(convId)
                 localRepo.markRead(convId)
@@ -229,7 +342,7 @@ class ChatViewModel(
 
     /**
      * 由 conversation 快照 + 主角色卡 推导对话级身份。
-     * 优先级：快照列优先；为空时回退主角色卡 / 全局配置主身份。
+     * 用户身份优先级：对话内被改过（userIdentityOverridden）→ 角色卡自带 → 全局主身份兜底。
      */
     private fun profileOf(conv: Conversation?, character: CharacterEntity?): ConversationProfile {
         val charRemark = conv?.charRemark?.ifBlank { null }
@@ -241,18 +354,32 @@ class ChatViewModel(
         val systemPrompt = conv?.systemPrompt?.ifBlank { null }
             ?: character?.systemPrompt
             ?: ""
-        // 用户身份默认以全局配置（我→个人信息）为准；仅当本对话被「对话内」主动改过
-        // （userIdentityOverridden=true）才使用对话级快照，避免旧名被烤进快照后跨重装残留。
+        // 用户身份优先级（未在本对话内主动改过时）：
+        //   对话快照（创建时已把角色卡用户字段烤入）→ 角色卡实体 → 全局主身份兜底。
+        // 关键：先读对话快照而非依赖 currentCharacter，避免「从角色卡发消息」时 currentCharacter
+        // 尚未异步就绪导致用户身份整条回退到全局设置的竞态（首条消息误用全局身份）。
         val userOverridden = conv?.userIdentityOverridden == true
-        val userName = if (userOverridden) conv?.userName?.ifBlank { null } else null
-            ?: configManager.getDefaultUserName().ifBlank { null }
-            ?: character?.userName?.ifBlank { null }
-        val userDescription = if (userOverridden) conv?.userDescription?.ifBlank { null } else null
-            ?: configManager.getDefaultUserDescription().ifBlank { null }
-            ?: character?.userDescription?.ifBlank { null }
-        val userAvatar = if (userOverridden) conv?.userAvatar?.ifBlank { null } else null
-            ?: character?.userAvatar?.ifBlank { null }
-            ?: configManager.getDefaultUserAvatar().ifBlank { null }
+        val userName = if (userOverridden) {
+            conv?.userName?.ifBlank { null }
+        } else {
+            conv?.userName?.ifBlank { null }
+                ?: character?.userName?.ifBlank { null }
+                ?: configManager.getDefaultUserName().ifBlank { null }
+        }
+        val userDescription = if (userOverridden) {
+            conv?.userDescription?.ifBlank { null }
+        } else {
+            conv?.userDescription?.ifBlank { null }
+                ?: character?.userDescription?.ifBlank { null }
+                ?: configManager.getDefaultUserDescription().ifBlank { null }
+        }
+        val userAvatar = if (userOverridden) {
+            conv?.userAvatar?.ifBlank { null }
+        } else {
+            conv?.userAvatar?.ifBlank { null }
+                ?: character?.userAvatar?.ifBlank { null }
+                ?: configManager.getDefaultUserAvatar().ifBlank { null }
+        }
         // 性别 / 微信号来自全局主身份（角色卡 / 对话快照均无单独字段）
         val userGender = configManager.getDefaultUserGender().ifBlank { null }
         val userWechatId = configManager.getDefaultUserWechatId().ifBlank { null }
@@ -292,11 +419,13 @@ class ChatViewModel(
         charThinkingEnabled = character?.thinkingEnabled ?: false,
         charRealConversation = character?.realConversation ?: false,
         charRealConvVersion = character?.realConvVersion ?: "v1",
-        // 用户身份默认跟随全局配置，不在创建时把旧名烤进快照
+        // 进入对话即把「解析后的用户身份」烤进快照：角色卡用户字段优先，否则全局主身份兜底。
+        // 之后对话框只读取对话快照、不再回源全局设置，保证从角色卡发消息带上卡内用户设定，
+        // 且普通对话也持有一份独立快照，可在对话内单独编辑而不受全局改动影响。
         userIdentityOverridden = false,
-        userName = character?.userName,
-        userAvatar = character?.userAvatar,
-        userDescription = character?.userDescription
+        userName = character?.userName ?: configManager.getDefaultUserName().ifBlank { null },
+        userAvatar = character?.userAvatar ?: configManager.getDefaultUserAvatar().ifBlank { null },
+        userDescription = character?.userDescription ?: configManager.getDefaultUserDescription().ifBlank { null }
     )
 
     /** 同步建立 profile（创建对话时调用，保证首条请求的 system 提示立即生效） */
@@ -352,44 +481,49 @@ class ChatViewModel(
             return
         }
 
-        // 解析模型与对应凭证（key / url 绑定在模型上）
-        val modelId = _profile.value?.modelId ?: currentCharacter?.modelId
-            ?: settingsRepo.getDefaultModelId() ?: _defaultModel.value
-        if (modelId.isBlank()) {
-            Toast.makeText(getApplication(), "请先在「模型管理」中添加模型", Toast.LENGTH_LONG).show()
-            _messages.value = _messages.value + ChatMessage("system", "请先在「模型管理」中添加模型")
-            _error.value = "请先在「模型管理」中添加模型"
-            return
-        }
-        val modelCfg = settingsRepo.getModelConfig(modelId)
-        val apiKey = modelCfg?.apiKey
-        val apiUrl = modelCfg?.apiUrl
-        if (apiKey.isNullOrBlank()) {
-            val label = modelCfg?.name ?: modelId
-            Toast.makeText(getApplication(), "模型「$label」未配置 API Key，请到模型管理添加", Toast.LENGTH_LONG).show()
-            _messages.value = _messages.value + ChatMessage("system", "模型「$label」未配置 API Key，请到模型管理添加")
-            _error.value = "模型「$label」未配置 API Key"
+        // 排队模式（真实对话开启即生效，不绑定开发者模式）：只写 behavior 进队列，不发 API——在此提前返回，不锁 loading。
+        // 队列由自动触发（真实对话常驻功能）或开发者模式下的测试按钮打包 flush；
+        // 开发者模式关闭时 flush 走真实 API，开启时为模拟推送。
+        // 注意：模型与凭证解析已下沉到下方各分支内部（send 异步协程 / flushQueue），
+        // 以便取到「角色卡」解析后的用户身份与模型，避免提前用全局默认模型误判。
+        val queueMode = _profile.value?.realConversation == true
+        if (queueMode) {
+            // 内存计数 +1，供 flushQueue 校验 DB 是否已落库最新数据（双重保障 2）
+            pendingQueueCount++
+            staleRetryCount = 0
+            val existingConvId = conversationId
+            val msg = ChatMessage("user", text, behaviorId = UUID.randomUUID().toString())
+            _messages.value = _messages.value + msg
+            anchatApp.engineScope.launch {
+                // 确保角色卡已就绪（init 异步 setCharacter 可能未结束），否则快照会烤入 null 用户字段
+                val character = resolveCharacter()
+                val convId = existingConvId ?: run {
+                    val conv = snapshotFrom(character, character?.name ?: "新对话", character?.id ?: -1L)
+                    val newId = localRepo.createConversation(conv)
+                    conversationId = newId
+                    _conversationId.value = newId
+                    ActiveConversation.set(newId)
+                    newId
+                }
+                val conv = localRepo.getConversation(convId)
+                applyProfile(conv, character)
+                localRepo.persistQueuedUserTurn(convId, text, System.currentTimeMillis())
+            }
             return
         }
 
         // 进入异步前先锁住 loading，防止快速连点导致重复发送
         _isLoading.value = true
         _error.value = null
-
-        // 趁 app 还在前台（用户刚点击发送）立即启动前台保活 Service。
-        // 不能放在下面的异步块里——等 suspend 函数恢复时 app 可能已进后台，
-        // Android 12+ 会拒绝后台启动前台 Service，导致请求在后台被杀报网络错误。
         RequestForegroundService.begin(getApplication())
 
-        // 捕获当前快照（供 engineScope 使用，避免跨协程读到中间态）
-        val character = currentCharacter
         val existingConvId = conversationId
-        val existingSystemPrompt = buildSystemPrompt()
-        val userRawId = UUID.randomUUID().toString()
 
         // 引擎编排（建对话→存用户消息→engine.send）放到 Application 级 engineScope，
         // 不随 ViewModel 生命周期绑定——用户退出页面或退到桌面后请求仍能完成。
         anchatApp.engineScope.launch {
+            // 确保角色卡已就绪（init 异步 setCharacter 可能未结束），否则快照会烤入 null 用户字段
+            val character = resolveCharacter()
             val convId = existingConvId ?: run {
                 val conv = snapshotFrom(
                     character,
@@ -405,10 +539,37 @@ class ChatViewModel(
 
             val conv = localRepo.getConversation(convId)
             applyProfile(conv, character)
-            val systemPrompt = existingSystemPrompt ?: buildSystemPrompt()
+            val systemPrompt = buildSystemPrompt()
+
+            // 解析模型与对应凭证（优先对话级/角色卡，回退全局）
+            val modelId = _profile.value?.modelId ?: character?.modelId
+                ?: settingsRepo.getDefaultModelId() ?: _defaultModel.value
+            if (modelId.isBlank()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(getApplication(), "请先在「模型管理」中添加模型", Toast.LENGTH_LONG).show()
+                    _messages.value = _messages.value + ChatMessage("system", "请先在「模型管理」中添加模型")
+                    _error.value = "请先在「模型管理」中添加模型"
+                    _isLoading.value = false
+                }
+                return@launch
+            }
+            val modelCfg = settingsRepo.getModelConfig(modelId)
+            val apiKey = modelCfg?.apiKey
+            val apiUrl = modelCfg?.apiUrl
+            if (apiKey.isNullOrBlank()) {
+                withContext(Dispatchers.Main) {
+                    val label = modelCfg?.name ?: modelId
+                    Toast.makeText(getApplication(), "模型「$label」未配置 API Key，请到模型管理添加", Toast.LENGTH_LONG).show()
+                    _messages.value = _messages.value + ChatMessage("system", "模型「$label」未配置 API Key，请到模型管理添加")
+                    _error.value = "模型「$label」未配置 API Key"
+                    _isLoading.value = false
+                }
+                return@launch
+            }
 
             // 用户消息统一写 raw_replies + behaviors（behaviors 即真正消息表），
             // 返回的 behaviorId 供长按删除精准定位这一句。
+            val userRawId = UUID.randomUUID().toString()
             val userBehaviorId = try {
                 localRepo.persistUserTurn(convId, text, userRawId, System.currentTimeMillis())
             } catch (e: Exception) {
@@ -433,6 +594,79 @@ class ChatViewModel(
                 decompSpec = decompSpec
             )
             engine.send(TurnInput(text), context)
+        }
+    }
+
+    /** 打包当前对话全部排队消息，发 API。双重保障：空队列出；DB 未落库最新数据不出。 */
+    fun flushQueue() {
+        val convId = conversationId ?: return
+
+        // 挂在 engineScope：退出聊天页后排队消息仍能打包发送、API 跑完（前台服务保活）。
+        anchatApp.engineScope.launch(Dispatchers.IO) {
+            // 确保角色卡已就绪（init 异步 setCharacter 可能未结束），否则用户身份/模型回落全局
+            val character = resolveCharacter()
+            // 解析模型凭证（同 send 逻辑）
+            val modelId = _profile.value?.modelId ?: character?.modelId
+                ?: settingsRepo.getDefaultModelId() ?: _defaultModel.value
+            if (modelId.isBlank()) return@launch
+            val modelCfg = settingsRepo.getModelConfig(modelId)
+            val apiKey = modelCfg?.apiKey ?: return@launch
+            val apiUrl = modelCfg?.apiUrl ?: return@launch
+
+            // 双重保障 2：确认 DB 已落库最新用户数据再发请求
+            val queuedNow = localRepo.getQueuedBehaviors(convId)
+            if (queuedNow.isEmpty()) {
+                Log.d("ANCHAT_FLUSH", "flushQueue: 队列已空，放弃请求")
+                return@launch
+            }
+            if (pendingQueueCount > 0 && queuedNow.size < pendingQueueCount) {
+                Log.w("ANCHAT_FLUSH", "flushQueue: DB 尚未落库最新数据(queued=${queuedNow.size} < pending=$pendingQueueCount)，放弃本次请求")
+                if (staleRetryCount < MAX_STALE_RETRY) {
+                    staleRetryCount++
+                    withContext(Dispatchers.Main) {
+                        // 稍后重试，给 DB 一点落库时间（最多 MAX_STALE_RETRY 次）
+                        triggerJob?.cancel()
+                        triggerJob = anchatApp.engineScope.launch { delay(800); fireTrigger() }
+                    }
+                } else {
+                    Log.e("ANCHAT_FLUSH", "flushQueue: 重试次数耗尽，放弃（消息仍留库，下次触发将重试）")
+                    staleRetryCount = 0
+                }
+                return@launch
+            }
+            // 通过校验：切回主线程发起 loading / 前台服务，再交 engineScope 真正发请求
+            withContext(Dispatchers.Main) {
+                _isLoading.value = true
+                RequestForegroundService.begin(getApplication())
+            }
+            anchatApp.engineScope.launch {
+                val (rawId, combinedText) = localRepo.flushQueue(convId) ?: run {
+                    withContext(Dispatchers.Main) { _isLoading.value = false }
+                    return@launch
+                }
+                // 发送成功：清零内存计数与重试计数
+                pendingQueueCount = 0
+                staleRetryCount = 0
+                Log.d("ANCHAT_FLUSH", "flushQueue -> rawId=$rawId combinedText=[$combinedText]")
+                val conv = localRepo.getConversation(convId)
+                applyProfile(conv, character)
+                val systemPrompt = buildSystemPrompt()
+                val decompSpec = buildDecompSpec()
+                val realConv = _profile.value?.realConversation == true
+
+                val context = ConversationContext(
+                    conversationId = convId.toString(),
+                    systemPrompt = systemPrompt,
+                    modelId = modelId,
+                    apiKey = apiKey,
+                    apiUrl = apiUrl,
+                    batchId = rawId,
+                    realConversation = realConv,
+                    realConvVersion = conv?.charRealConvVersion ?: character?.realConvVersion ?: RealConvVersion.DEFAULT,
+                    decompSpec = decompSpec
+                )
+                engine.send(TurnInput(combinedText), context)
+            }
         }
     }
 
@@ -476,7 +710,7 @@ class ChatViewModel(
     private fun behaviorToChatMessage(b: Behavior): ChatMessage = ChatMessage(
         role = b.role,
         content = b.content,
-        batchId = b.rawId,
+        batchId = b.batchId,
         behaviorId = b.behaviorId,
         behaviorType = b.type.value,
         duration = b.duration
@@ -492,8 +726,14 @@ class ChatViewModel(
     ): List<ChatMessage> {
         val items = mutableListOf<Pair<Long, ChatMessage>>()
         val behaviors = localRepo.getCompletedBehaviors(convId)
+        // 真实对话模式：排队消息(status=-1)也要加载展示
+        val queued = if (realConv) localRepo.getQueuedBehaviors(convId) else emptyList()
         shownBehaviorIds += behaviors.map { it.behaviorId }
+        shownBehaviorIds += queued.map { it.behaviorId }
         behaviors.forEach { b ->
+            items += Pair(b.excuTime, behaviorToChatMessage(b))
+        }
+        queued.forEach { b ->
             items += Pair(b.excuTime, behaviorToChatMessage(b))
         }
         return items.sortedBy { it.first }.map { it.second }
@@ -506,11 +746,17 @@ class ChatViewModel(
         _conversationId.value = null
         ActiveConversation.set(null)
         _messages.value = emptyList()
+        pendingQueueCount = 0
+        staleRetryCount = 0
     }
 
     override fun onCleared() {
         super.onCleared()
-        // 离开聊天页：清空「当前打开的会话」，使后续消息能正常弹通知
+        // 注意：不取消 triggerJob —— 自动触发的计时/flush 挂在 engineScope，
+        // 退出聊天页后仍需它把排队消息打包发送（真实对话常驻功能）。
+        // 仅标记页已销毁，让开发者模式测试气泡等纯 UI 行为不再更新死 StateFlow；
+        // 并清空「当前打开的会话」，使回复到达时正常弹系统通知。
+        isScreenActive = false
         ActiveConversation.set(null)
     }
 

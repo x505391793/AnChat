@@ -16,6 +16,7 @@ import com.anchat.service.RequestForegroundService
 import com.anchat.engine.scheduler.BehaviorScheduler
 import com.anchat.engine.analyzer.ReplyAnalyzer
 import com.anchat.engine.core.ConversationEngine
+import com.anchat.engine.core.contract.BehaviorType
 import com.anchat.engine.core.contract.EngineEvent
 import com.anchat.engine.sender.RequestBuilder
 import com.anchat.engine.spi.EngineSink
@@ -110,25 +111,37 @@ class AnChatApplication : Application() {
             .edit().remove("models_seeded").apply()
         // 启动补播未完成行为（中断重启续播）
         engine.catchUp()
-        // 系统通知通道 + 引擎事件 → 推送（收到非当前会话的助手消息时弹通知）
+        // 系统通知通道 + 引擎事件 → 推送
+        // 通知推送下沉到「行为层」（EngineEvent.BehaviorDue），使用拆解后的回复气泡文本，
+        // 而非 EngineEvent.AssistantMessage 的原始 API 返回（真实对话下 raw.content 是 JSON）。
+        // 这样不论是否开启真实对话，弹出的通知内容都是正确可读的回复。
+        // AssistantMessage 仅作「网络层响应已到达」信号，用来结束前台服务。
         pushNotifier.ensureChannel()
         engineScope.launch {
             engineEvents.collect { event ->
-                if (event is EngineEvent.AssistantMessage) {
-                    RequestForegroundService.finish(this@AnChatApplication)
-                    val convId = event.record.conversationId.toLongOrNull() ?: return@collect
-                    val conv = localRepository.getConversation(convId)
-                    val title = conv?.charRemark?.takeIf { it.isNotBlank() }
-                        ?: conv?.charName?.takeIf { it.isNotBlank() }
-                        ?: conv?.title ?: "AnChat"
-                    // 通知预览用「对话列表预览」字段：引擎已按行为层算好（最后一条 speech 文本，
-                    // 普通对话=整段回复、真实对话=拆解出的说话文本），而非原始整段回复
-                    // （hidden=true，真实对话里是源数据/JSON），避免推源数据。
-                    val preview = conv?.preview?.takeIf { it.isNotBlank() }?.take(50)
-                        ?: event.record.content.take(50)
-                    pushNotifier.onAssistantMessage(convId, title, preview)
-                } else if (event is EngineEvent.Error) {
-                    RequestForegroundService.finish(this@AnChatApplication)
+                when (event) {
+                    is EngineEvent.AssistantMessage -> {
+                        // 响应已到达（网络层）：结束前台服务。通知推送交给行为层。
+                        RequestForegroundService.finish(this@AnChatApplication)
+                    }
+                    is EngineEvent.BehaviorDue -> {
+                        // 行为层：拆解后的回复气泡到达。仅对「助手发言(speech)」弹通知，
+                        // emotion/leave 等是动作描述，不应作为通知预览文本。
+                        val b = event.behavior
+                        if (b.role == "assistant" && b.type == BehaviorType.SPEECH) {
+                            val convId = b.conversationId.toLongOrNull() ?: return@collect
+                            val conv = localRepository.getConversation(convId)
+                            val title = conv?.charRemark?.takeIf { it.isNotBlank() }
+                                ?: conv?.charName?.takeIf { it.isNotBlank() }
+                                ?: conv?.title ?: "AnChat"
+                            // 预览用拆解后的发言文本，真实对话下为可读回复而非原始 JSON。
+                            val preview = b.content.take(50)
+                            pushNotifier.onReply(convId, title, preview)
+                        }
+                    }
+                    is EngineEvent.Error -> {
+                        RequestForegroundService.finish(this@AnChatApplication)
+                    }
                 }
             }
         }

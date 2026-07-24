@@ -11,7 +11,6 @@ import androidx.room.PrimaryKey
 data class Conversation(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(name = "title") val title: String = "新对话",
-    @ColumnInfo(name = "preview") val preview: String = "",
     @ColumnInfo(name = "is_star") val isStar: Boolean = false,
     @ColumnInfo(name = "is_pinned") val isPinned: Boolean = false,
     @ColumnInfo(name = "character_id") val characterId: Long = -1L,

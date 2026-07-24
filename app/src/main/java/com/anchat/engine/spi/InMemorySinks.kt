@@ -32,7 +32,6 @@ class InMemoryPersistenceSink : PersistenceSink {
     override suspend fun getHistory(conversationId: String): List<ChatMessageRecord> = history.toList()
     override suspend fun persistRaw(raw: RawReply, conversationId: String) { raws += raw }
     override suspend fun persistBehaviors(list: List<Behavior>) { behaviors += list }
-    override suspend fun updatePreview(conversationId: String, preview: String) {}
     override suspend fun markCompleted(behaviorId: String) {
         behaviors.replaceAll { if (it.behaviorId == behaviorId) it.copy(status = Behavior.STATUS_SENT) else it }
     }

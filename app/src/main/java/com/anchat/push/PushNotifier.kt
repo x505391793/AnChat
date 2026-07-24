@@ -46,10 +46,10 @@ class PushNotifier(
     }
 
     /**
-     * 收到一条助手消息。
+     * 一条助手回复气泡（行为层）到达，按需要弹系统通知。
      * @return true=已弹通知；false=当前正查看该会话（已标记已读，不弹）。
      */
-    suspend fun onAssistantMessage(convId: Long, title: String, preview: String): Boolean {
+    suspend fun onReply(convId: Long, title: String, preview: String): Boolean {
         if (ActiveConversation.id.value == convId) {
             // 正在看这个会话：直接清未读，不弹通知
             repo.markRead(convId)

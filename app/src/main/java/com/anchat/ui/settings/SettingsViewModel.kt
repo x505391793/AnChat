@@ -36,6 +36,15 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         _notificationsEnabled.value = enabled
     }
 
+    // ─── 开发者模式 ───────────────────────
+    private val _developerMode = MutableStateFlow(configManager.getDeveloperMode())
+    val developerMode: StateFlow<Boolean> = _developerMode.asStateFlow()
+
+    fun setDeveloperMode(enabled: Boolean) {
+        configManager.setDeveloperMode(enabled)
+        _developerMode.value = enabled
+    }
+
     // ─── Config path ───────────────────────────────────
     private val _configDisplayPath = MutableStateFlow(repo.getConfigDisplayPath())
     val configDisplayPath: StateFlow<String> = _configDisplayPath.asStateFlow()

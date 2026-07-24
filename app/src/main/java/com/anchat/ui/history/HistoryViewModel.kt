@@ -4,7 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.anchat.AnChatApplication
-import com.anchat.data.local.entity.Conversation
+import com.anchat.data.local.entity.ConversationListItem
 import com.anchat.data.repository.LocalRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,8 +20,8 @@ class HistoryViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo: LocalRepository = (app as AnChatApplication).localRepository
 
-    private val _conversations = MutableStateFlow<List<Conversation>>(emptyList())
-    val conversations: StateFlow<List<Conversation>> = _conversations.asStateFlow()
+    private val _conversations = MutableStateFlow<List<ConversationListItem>>(emptyList())
+    val conversations: StateFlow<List<ConversationListItem>> = _conversations.asStateFlow()
 
     /** 会话 id → 未读计数（红点） */
     val unread: StateFlow<Map<Long, Int>> =

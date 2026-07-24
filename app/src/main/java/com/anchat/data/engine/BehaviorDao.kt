@@ -24,7 +24,7 @@ interface BehaviorDao {
     /** 对话打开时：把该对话下所有「已执行未读」行为翻为已读（status 1 → 2） */
     @Query(
         """UPDATE behaviors SET status = 2
-           WHERE status = 1 AND raw_id IN (SELECT id FROM raw_replies WHERE conversation_id = :conversationId)"""
+           WHERE status = 1 AND batch_id IN (SELECT id FROM raw_replies WHERE conversation_id = :conversationId)"""
     )
     suspend fun markAllReadByConversation(conversationId: String)
 
@@ -50,7 +50,7 @@ interface BehaviorDao {
      */
     @Query(
         """SELECT b.* FROM behaviors b
-           JOIN raw_replies r ON b.raw_id = r.id
+           JOIN raw_replies r ON b.batch_id = r.id
            WHERE r.conversation_id = :conversationId AND b.status >= 1
            ORDER BY b.excu_time ASC"""
     )
@@ -59,7 +59,7 @@ interface BehaviorDao {
     /** 同上，但一次性返回（用于进入对话时的初始加载） */
     @Query(
         """SELECT b.* FROM behaviors b
-           JOIN raw_replies r ON b.raw_id = r.id
+           JOIN raw_replies r ON b.batch_id = r.id
            WHERE r.conversation_id = :conversationId AND b.status >= 1
            ORDER BY b.excu_time ASC"""
     )
@@ -71,6 +71,19 @@ interface BehaviorDao {
             "FROM behaviors WHERE status = 1 GROUP BY conversation_id"
     )
     fun observeUnread(): Flow<List<BehaviorUnread>>
+
+
+    /** 取对话下全部排队消息（status=-1），按时间序 */
+    @Query(
+        "SELECT * FROM behaviors WHERE conversation_id = :conversationId AND status = -1 ORDER BY excu_time ASC"
+    )
+    suspend fun getQueuedByConversation(conversationId: String): List<BehaviorEntity>
+
+    /** 将对话下全部排队消息标记为已发送：统一 batchId + status=READ */
+    @Query(
+        "UPDATE behaviors SET batch_id = :batchId, status = 2 WHERE conversation_id = :conversationId AND status = -1"
+    )
+    suspend fun markQueuedAsSent(conversationId: String, batchId: String)
 }
 
 /** 未读计数行：conversation_id（字符串，与 behaviors.conversation_id 同值）+ 数量 */

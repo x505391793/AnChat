@@ -15,7 +15,6 @@ class ReplyAnalyzer {
         return listOf(
             Behavior(
                 behaviorId = UUID.randomUUID().toString(),
-                rawId = raw.id,
                 order = 0,
                 type = BehaviorType.SPEECH,
                 role = "assistant",

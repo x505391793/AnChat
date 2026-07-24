@@ -122,7 +122,6 @@ class BehaviorDecomposer(private val requestSink: RequestSink) {
             }
             val behavior = Behavior(
                 behaviorId = UUID.randomUUID().toString(),
-                rawId = rawId,
                 order = ev.order,
                 type = type,
                 role = "assistant",

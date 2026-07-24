@@ -46,4 +46,9 @@ data class AppConfig(
      * 默认开启；关闭后仅保留应用内未读红点，不再弹系统通知。
      */
     val notificationsEnabled: Boolean = true,
+    /**
+     * 开发者模式：开启后启用调试用的测试功能（自动触发推送、对话内测试按钮、模拟推送）；
+     * 关闭则走正常流程，直接调用 API 发送对话。默认关闭。
+     */
+    val developerMode: Boolean = false,
 )

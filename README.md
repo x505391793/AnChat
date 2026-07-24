@@ -28,6 +28,7 @@
 7. 主动发起对话
 8. 开发者模式开关
 9. 数据迁移
+10. 多模型适应
 
 ## 技术栈
 
@@ -41,7 +42,7 @@
 | 配置 | JSON 文件 |
 | 语言 | Kotlin 2.0.21 / JVM 17 |
 
-## 数据库 (Room v21)
+## 数据库 (Room v22)
 
 **conversations**
 
@@ -96,13 +97,12 @@
 
 **behaviors（行为数据层）**
 
-用户视角完整消息表。user / assistant 同表，batch_id 指向各自源 raw。
+用户视角完整消息表。user / assistant 同表，batchId = 源 raw.id 兼 FK。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | String PK (UUID) | behaviorId |
-| rawId | String | 来源 raw_replies.id |
-| batchId | String | 同源聚合键，= 源 raw.id |
+| batchId | String | 源 raw.id（同源聚合键） |
 | order | Int | 行为顺序 |
 | type | String | speech / emotion / leave / text |
 | role | String | user / assistant |
@@ -111,7 +111,6 @@
 | excuTime | Long | 分时推送时间戳 |
 | status | Int | 0=待播 / 1=已推未读 / 2=已读 |
 | conversationId | String | 所属对话 |
-
 ## 对话处理引擎（行为机）运行逻辑
 
 把「对话智能处理」从 `ChatViewModel` 抽成独立纯 Kotlin 模块 `com.anchat.engine`（仅依赖 stdlib + coroutines，不 import android / androidx / ui / data），与对话侧经三个 spi 接缝解耦：

@@ -22,9 +22,6 @@ interface PersistenceSink {
     /** 分解行为入库；每条 rawId 即 raw↔behavior 映射 */
     suspend fun persistBehaviors(behaviors: List<Behavior>)
 
-    /** 更新对话 preview */
-    suspend fun updatePreview(conversationId: String, preview: String)
-
     /** 调度器推进状态机 */
     suspend fun markCompleted(behaviorId: String)
     suspend fun markRead(behaviorId: String)

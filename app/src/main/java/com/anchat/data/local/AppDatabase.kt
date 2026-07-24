@@ -20,7 +20,7 @@ import com.anchat.data.local.entity.Conversation
         Conversation::class, CharacterEntity::class,
         RawReplyEntity::class, BehaviorEntity::class
     ],
-    version = 21,
+    version = 23,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -209,6 +209,82 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v21 → v22：删除 behaviors.raw_id 列（与 batch_id 值恒等，合并到 batch_id）
+        private val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE behaviors RENAME TO behaviors_old")
+                db.execSQL(
+                    """CREATE TABLE behaviors (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        batch_id TEXT NOT NULL DEFAULT '',
+                        `order` INTEGER NOT NULL,
+                        type TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        duration TEXT,
+                        excu_time INTEGER NOT NULL,
+                        status INTEGER NOT NULL,
+                        conversation_id TEXT NOT NULL DEFAULT ''
+                    )"""
+                )
+                db.execSQL(
+                    """INSERT INTO behaviors (id, batch_id, `order`, type, role, content, duration, excu_time, status, conversation_id)
+                       SELECT id, batch_id, `order`, type, role, content, duration, excu_time, status, conversation_id
+                       FROM behaviors_old"""
+                )
+                db.execSQL("DROP TABLE behaviors_old")
+            }
+        }
+
+        // v22 → v23：删除 conversations.preview 列（列表预览改为实时联查 behaviors
+        // 最后一条可读消息，不再持久化缓存——旧逻辑只在删除时刷新、发送/回复时不更新，
+        // 导致「AI 已回复但预览仍是用户消息」的 stale bug。SQLite 不支持 DROP COLUMN，
+        // 走「改名旧表 → 建无该列新表 → 回填 → 删旧表」四步；preview 列直接丢弃。
+        private val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations RENAME TO conversations_old")
+                db.execSQL(
+                    """CREATE TABLE conversations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        title TEXT NOT NULL DEFAULT '新对话',
+                        is_star INTEGER NOT NULL DEFAULT 0,
+                        is_pinned INTEGER NOT NULL DEFAULT 0,
+                        character_id INTEGER NOT NULL DEFAULT -1,
+                        model_id TEXT,
+                        system_prompt TEXT,
+                        char_remark TEXT,
+                        char_name TEXT,
+                        char_avatar TEXT,
+                        char_description TEXT,
+                        char_greeting TEXT,
+                        char_thinking_enabled INTEGER NOT NULL DEFAULT 0,
+                        char_real_conversation INTEGER NOT NULL DEFAULT 0,
+                        char_real_conv_version TEXT NOT NULL DEFAULT 'v1',
+                        user_identity_overridden INTEGER NOT NULL DEFAULT 0,
+                        user_name TEXT,
+                        user_avatar TEXT,
+                        user_description TEXT,
+                        created_at INTEGER NOT NULL DEFAULT 0,
+                        updated_at INTEGER NOT NULL DEFAULT 0
+                    )"""
+                )
+                db.execSQL(
+                    """INSERT INTO conversations (id, title, is_star, is_pinned, character_id,
+                           model_id, system_prompt, char_remark, char_name, char_avatar,
+                           char_description, char_greeting, char_thinking_enabled,
+                           char_real_conversation, char_real_conv_version, user_identity_overridden,
+                           user_name, user_avatar, user_description, created_at, updated_at)
+                       SELECT id, title, is_star, is_pinned, character_id,
+                              model_id, system_prompt, char_remark, char_name, char_avatar,
+                              char_description, char_greeting, char_thinking_enabled,
+                              char_real_conversation, char_real_conv_version, user_identity_overridden,
+                              user_name, user_avatar, user_description, created_at, updated_at
+                       FROM conversations_old"""
+                )
+                db.execSQL("DROP TABLE conversations_old")
+            }
+        }
+
     @Volatile
     private var INSTANCE: AppDatabase? = null
 
@@ -219,7 +295,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DB_NAME
             )
-            .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
+            .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23)
             .build().also { INSTANCE = it }
         }
     }

@@ -123,9 +123,28 @@ fun CharacterEditScreen(
             charRemark = c?.charRemark ?: character?.remark ?: ""
             systemPrompt = c?.systemPrompt ?: character?.systemPrompt ?: ""
             charGreeting = c?.charGreeting ?: character?.greeting ?: ""
-            userName = if (c?.userIdentityOverridden == true) c.userName ?: "" else app.configManager.getDefaultUserName()
-            userAvatar = if (c?.userIdentityOverridden == true) c.userAvatar ?: "" else (character?.userAvatar ?: app.configManager.getDefaultUserAvatar())
-            userDescription = if (c?.userIdentityOverridden == true) c.userDescription ?: "" else app.configManager.getDefaultUserDescription()
+            // 对话内「我的身份」：只读取本对话的用户信息快照，不再回源全局设置。
+            // 进入对话时（ChatViewModel）已把解析后的身份烤进快照；若快照三项皆空（旧数据/直达），
+            // 这里做一次迁移：把解析后的身份写回快照，之后本对话框只展示快照数据。
+            if (c != null && c.userIdentityOverridden != true &&
+                c.userName.isNullOrBlank() && c.userAvatar.isNullOrBlank() && c.userDescription.isNullOrBlank()
+            ) {
+                val seedName = character?.userName ?: app.configManager.getDefaultUserName().ifBlank { null }
+                val seedAvatar = character?.userAvatar ?: app.configManager.getDefaultUserAvatar().ifBlank { null }
+                val seedDesc = character?.userDescription ?: app.configManager.getDefaultUserDescription().ifBlank { null }
+                scope.launch {
+                    app.localRepository.updateConversation(
+                        c.copy(userName = seedName, userAvatar = seedAvatar, userDescription = seedDesc)
+                    )
+                }
+                userName = seedName ?: ""
+                userAvatar = seedAvatar ?: ""
+                userDescription = seedDesc ?: ""
+            } else {
+                userName = c?.userName ?: ""
+                userAvatar = c?.userAvatar ?: ""
+                userDescription = c?.userDescription ?: ""
+            }
             modelId = c?.modelId ?: character?.modelId
             thinkingEnabled = c?.charThinkingEnabled ?: character?.thinkingEnabled ?: false
             realConversation = c?.charRealConversation ?: character?.realConversation ?: false
