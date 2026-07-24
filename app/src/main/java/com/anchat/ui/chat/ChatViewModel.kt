@@ -445,14 +445,14 @@ class ChatViewModel(
         val profile = _profile.value ?: return null
         val parts = mutableListOf<String>()
 
-        if (profile.systemPrompt.isNotBlank()) {
-            parts.add(profile.systemPrompt)
-        }
-
         // 角色（AI 自身）名称：备注优先于角色卡名，确保 AI 知道自己并自称该名字
         val charName = profile.charRemark?.ifBlank { null } ?: profile.charName?.ifBlank { null }
         if (!charName.isNullOrBlank()) {
             parts.add("你的名字是${charName}。")
+        }
+
+        if (profile.systemPrompt.isNotBlank()) {
+            parts.add(profile.systemPrompt)
         }
 
         val userName = profile.userName?.ifBlank { null }
@@ -460,8 +460,8 @@ class ChatViewModel(
         val userDesc = profile.userDescription?.ifBlank { null }
         if (userName != null || userGender != null || userDesc != null) {
             val identityParts = mutableListOf<String>()
-            if (userName != null) identityParts.add("你的对话对象名叫${userName}。")
-            if (userGender != null) identityParts.add("其性别为${userGender}。")
+            if (userName != null) identityParts.add("我（用户）的名字叫${userName}。")
+            if (userGender != null) identityParts.add("性别为${userGender}。")
             if (userDesc != null) identityParts.add(userDesc)
             parts.add(identityParts.joinToString("\n"))
         }
