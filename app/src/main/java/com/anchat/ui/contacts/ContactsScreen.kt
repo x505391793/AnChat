@@ -48,8 +48,10 @@ import net.sourceforge.pinyin4j.format.HanyuPinyinToneType
 @Composable
 fun ContactsScreen(navController: NavHostController) {
     val app = LocalApp.current
-    val characters by app.localRepository.observeCharacters()
-        .collectAsStateWithLifecycle(initialValue = emptyList())
+    // remember 捕获同一个 Flow 实例：否则每次切回通讯录都重建 Flow 并重新查询 DB，
+    // 同时重跑 pinyin4j 分组排序（角色卡一多时进入通讯录会卡）。
+    val charactersFlow = remember { app.localRepository.observeCharacters() }
+    val characters by charactersFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     Scaffold(
         topBar = { CenterAlignedTopAppBar(title = { Text("通讯录", style = MaterialTheme.typography.titleMedium) }) }) { padding ->

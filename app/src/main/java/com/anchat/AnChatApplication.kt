@@ -1,6 +1,7 @@
 package com.anchat
 
 import android.app.Application
+import com.anchat.data.avatar.AvatarRepository
 import com.anchat.data.config.ConfigManager
 import com.anchat.data.config.ModelConfig
 import com.anchat.data.engine.EngineEngineSink
@@ -79,6 +80,12 @@ class AnChatApplication : Application() {
             analyzer = ReplyAnalyzer(),
             scheduler = scheduler
         )
+    }
+
+    /** 头像加载仓库：内存缓存 + 异步解码，UI 层（CharacterAvatar / AvatarUploadBox）共用。
+     *  挂在应用级 scope，解码任务随 Application 生命周期，UI 退出不中断。 */
+    val avatarRepository: AvatarRepository by lazy {
+        AvatarRepository(this, engineScope)
     }
 
     /** 系统通知推送器（依赖引擎事件流；受「通知推送」开关控制） */

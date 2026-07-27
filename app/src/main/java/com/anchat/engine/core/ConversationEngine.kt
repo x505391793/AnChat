@@ -98,7 +98,14 @@ class ConversationEngine(
                 }
                 // 仅「真实对话开启 + v1/v2 行为驱动」隐藏原始回复，由行为层驱动 UI
                 val decompEnabled = realConvV1 || realConvV2
-                persistenceSink.persistBehaviors(behaviors)
+                // 统一补全 behavior.conversationId：analyzer（非真实对话直出路径）构造行为时未带 conversationId，
+                // 会导致实时事件（BehaviorScheduler.getDue 不按对话过滤）携带空 conversationId，在 ChatViewModel
+                // 按对话隔离过滤时被静默丢弃 → 实时收不到气泡（退出重进因 raw 联查才看得到，bug2）。
+                // 真实对话 decomposer 已带 conversationId，此处为空操作。仅做数据补全，不改任何 API/分析/拆解逻辑。
+                val filledBehaviors = behaviors.map { b ->
+                    if (b.conversationId.isBlank()) b.copy(conversationId = context.conversationId) else b
+                }
+                persistenceSink.persistBehaviors(filledBehaviors)
                 scheduler.onPersisted(raw.id)
 
                 // 列表预览改为实时联查（ConversationDao 子查询取最后一条可读消息），

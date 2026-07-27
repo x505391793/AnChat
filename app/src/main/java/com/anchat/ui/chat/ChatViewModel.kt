@@ -157,7 +157,7 @@ class ChatViewModel(
     fun fireTrigger() {
         val convId = conversationId ?: return
         // 挂在 engineScope：退出聊天页后仍能完成「打包→发 API→行为层拆解」，
-        // 普通（非真实）对话不进此路径（setInputActive 已按 realConversation 拦截）。
+        // 普通（非真实）对话也会走此入口（send 立即触发），无需开发者模式。
         anchatApp.engineScope.launch(Dispatchers.IO) {
             // 双重保障 1：DB 中无排队气泡就不进入推送（含测试模拟）
             if (localRepo.getQueuedBehaviors(convId).isEmpty()) {
@@ -165,7 +165,9 @@ class ChatViewModel(
                 return@launch
             }
             withContext(Dispatchers.Main) {
-                if (configManager.getDeveloperMode()) {
+                // 开发者模式 + 真实对话 = 测试模拟：只弹一句气泡「自动触发了推送」，不发送任何 API；
+                // 普通对话即使开了开发者模式也走真实发送（开发者模式只门控真实对话的测试功能）。
+                if (configManager.getDeveloperMode() && _profile.value?.realConversation == true) {
                     // 测试模拟气泡：仅聊天页还活着时显示，退出后不刷死 StateFlow
                     if (isScreenActive) {
                         _messages.value = _messages.value + ChatMessage("system", "自动触发了推送")
@@ -487,113 +489,41 @@ class ChatViewModel(
         // 注意：模型与凭证解析已下沉到下方各分支内部（send 异步协程 / flushQueue），
         // 以便取到「角色卡」解析后的用户身份与模型，避免提前用全局默认模型误判。
         val queueMode = _profile.value?.realConversation == true
-        if (queueMode) {
-            // 内存计数 +1，供 flushQueue 校验 DB 是否已落库最新数据（双重保障 2）
-            pendingQueueCount++
-            staleRetryCount = 0
-            val existingConvId = conversationId
-            val msg = ChatMessage("user", text, behaviorId = UUID.randomUUID().toString())
-            _messages.value = _messages.value + msg
-            anchatApp.engineScope.launch {
-                // 确保角色卡已就绪（init 异步 setCharacter 可能未结束），否则快照会烤入 null 用户字段
-                val character = resolveCharacter()
-                val convId = existingConvId ?: run {
-                    val conv = snapshotFrom(character, character?.name ?: "新对话", character?.id ?: -1L)
-                    val newId = localRepo.createConversation(conv)
-                    conversationId = newId
-                    _conversationId.value = newId
-                    ActiveConversation.set(newId)
-                    newId
-                }
-                val conv = localRepo.getConversation(convId)
-                applyProfile(conv, character)
-                localRepo.persistQueuedUserTurn(convId, text, System.currentTimeMillis())
-            }
-            return
-        }
 
-        // 进入异步前先锁住 loading，防止快速连点导致重复发送
-        _isLoading.value = true
-        _error.value = null
-        RequestForegroundService.begin(getApplication())
-
+        // 统一触发框架：两种模式都「先发送(入队) → 再触发 → 才真正发」。
+        // 普通对话：气泡推出同时立即触发(fireTrigger → flushQueue → engine.send)；
+        // 真实对话：入队后交给 setInputActive 的 5s 空闲计时触发（常驻功能，不绑定开发者模式）。
+        // loading 由 flushQueue 在真正发送时锁定（两模式一致），不在此锁，避免无模型等异常导致 loading 卡死。
+        pendingQueueCount++
+        staleRetryCount = 0
         val existingConvId = conversationId
 
-        // 引擎编排（建对话→存用户消息→engine.send）放到 Application 级 engineScope，
+        // 引擎编排（建对话→存用户消息→触发后台发送）放到 Application 级 engineScope，
         // 不随 ViewModel 生命周期绑定——用户退出页面或退到桌面后请求仍能完成。
         anchatApp.engineScope.launch {
             // 确保角色卡已就绪（init 异步 setCharacter 可能未结束），否则快照会烤入 null 用户字段
             val character = resolveCharacter()
             val convId = existingConvId ?: run {
-                val conv = snapshotFrom(
-                    character,
-                    character?.name ?: "新对话",
-                    character?.id ?: -1L
-                )
+                val conv = snapshotFrom(character, character?.name ?: "新对话", character?.id ?: -1L)
                 val newId = localRepo.createConversation(conv)
                 conversationId = newId
                 _conversationId.value = newId
                 ActiveConversation.set(newId)
                 newId
             }
-
             val conv = localRepo.getConversation(convId)
             applyProfile(conv, character)
-            val systemPrompt = buildSystemPrompt()
-
-            // 解析模型与对应凭证（优先对话级/角色卡，回退全局）
-            val modelId = _profile.value?.modelId ?: character?.modelId
-                ?: settingsRepo.getDefaultModelId() ?: _defaultModel.value
-            if (modelId.isBlank()) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(getApplication(), "请先在「模型管理」中添加模型", Toast.LENGTH_LONG).show()
-                    _messages.value = _messages.value + ChatMessage("system", "请先在「模型管理」中添加模型")
-                    _error.value = "请先在「模型管理」中添加模型"
-                    _isLoading.value = false
-                }
-                return@launch
+            // 统一入队：用户消息落库为排队态(status=-1)，随后由触发机打包发送
+            val userBehaviorId = localRepo.persistQueuedUserTurn(convId, text, System.currentTimeMillis())
+            // 推用户气泡（带真实 behaviorId，保证长按删除可定位本句）
+            withContext(Dispatchers.Main) {
+                _messages.value = _messages.value + ChatMessage("user", text, behaviorId = userBehaviorId)
             }
-            val modelCfg = settingsRepo.getModelConfig(modelId)
-            val apiKey = modelCfg?.apiKey
-            val apiUrl = modelCfg?.apiUrl
-            if (apiKey.isNullOrBlank()) {
-                withContext(Dispatchers.Main) {
-                    val label = modelCfg?.name ?: modelId
-                    Toast.makeText(getApplication(), "模型「$label」未配置 API Key，请到模型管理添加", Toast.LENGTH_LONG).show()
-                    _messages.value = _messages.value + ChatMessage("system", "模型「$label」未配置 API Key，请到模型管理添加")
-                    _error.value = "模型「$label」未配置 API Key"
-                    _isLoading.value = false
-                }
-                return@launch
+            if (!queueMode) {
+                // 普通对话：气泡推出同时触发后台发送
+                fireTrigger()
             }
-
-            // 用户消息统一写 raw_replies + behaviors（behaviors 即真正消息表），
-            // 返回的 behaviorId 供长按删除精准定位这一句。
-            val userRawId = UUID.randomUUID().toString()
-            val userBehaviorId = try {
-                localRepo.persistUserTurn(convId, text, userRawId, System.currentTimeMillis())
-            } catch (e: Exception) {
-                Log.w(TAG, "保存用户消息失败: ${e.message}")
-                null
-            }
-            _messages.value = _messages.value + ChatMessage("user", text, batchId = userRawId, behaviorId = userBehaviorId)
-
-            // 真实对话：开关纯标志（版本决定是否真需要管理 AI）；v2 主请求直接产出 JSON，无需第二模型
-            val decompSpec = buildDecompSpec()
-            val realConv = _profile.value?.realConversation == true
-
-            val context = ConversationContext(
-                conversationId = convId.toString(),
-                systemPrompt = systemPrompt,
-                modelId = modelId,
-                apiKey = apiKey,
-                apiUrl = apiUrl ?: "",
-                batchId = userRawId,
-                realConversation = realConv,
-                realConvVersion = conv?.charRealConvVersion ?: character?.realConvVersion ?: RealConvVersion.DEFAULT,
-                decompSpec = decompSpec
-            )
-            engine.send(TurnInput(text), context)
+            // 真实对话：不在此触发，交给 setInputActive 的 5s 空闲计时（真实对话常驻功能）
         }
     }
 
@@ -608,9 +538,23 @@ class ChatViewModel(
             // 解析模型凭证（同 send 逻辑）
             val modelId = _profile.value?.modelId ?: character?.modelId
                 ?: settingsRepo.getDefaultModelId() ?: _defaultModel.value
-            if (modelId.isBlank()) return@launch
+            if (modelId.isBlank()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(getApplication(), "请先在「模型管理」中添加模型", Toast.LENGTH_LONG).show()
+                    _error.value = "请先在「模型管理」中添加模型"
+                }
+                return@launch
+            }
             val modelCfg = settingsRepo.getModelConfig(modelId)
-            val apiKey = modelCfg?.apiKey ?: return@launch
+            val apiKey = modelCfg?.apiKey
+            if (apiKey.isNullOrBlank()) {
+                withContext(Dispatchers.Main) {
+                    val label = modelCfg?.name ?: modelId
+                    Toast.makeText(getApplication(), "模型「$label」未配置 API Key，请到模型管理添加", Toast.LENGTH_LONG).show()
+                    _error.value = "模型「$label」未配置 API Key"
+                }
+                return@launch
+            }
             val apiUrl = modelCfg?.apiUrl ?: return@launch
 
             // 双重保障 2：确认 DB 已落库最新用户数据再发请求
@@ -662,7 +606,14 @@ class ChatViewModel(
                     apiUrl = apiUrl,
                     batchId = rawId,
                     realConversation = realConv,
-                    realConvVersion = conv?.charRealConvVersion ?: character?.realConvVersion ?: RealConvVersion.DEFAULT,
+                    // 版本与主开关必须一致：关闭真实对话后即便角色卡曾选 v2，也强制退回 DEFAULT(v1) 纯文本请求，
+                    // 避免 RequestBuilder 仅凭 realConvVersion 发出 V2 JSON 请求、而引擎因 realConv=false 走 analyzer 直出，
+                    // 导致把 JSON 原文当气泡显示（bug1）。
+                    realConvVersion = if (realConv) {
+                        conv?.charRealConvVersion ?: character?.realConvVersion ?: RealConvVersion.DEFAULT
+                    } else {
+                        RealConvVersion.DEFAULT
+                    },
                     decompSpec = decompSpec
                 )
                 engine.send(TurnInput(combinedText), context)
@@ -717,29 +668,54 @@ class ChatViewModel(
     )
 
     /**
-     * 初始展示列表 = 该对话已完成行为（含 user 行 READ），按执行时间序合并。
-     * 全部模式统一由行为层驱动 UI（气泡只来自 behaviors 表；user/assistant 同表）。
+     * 初始展示列表 = 该对话最近一页已完成行为（含 user 行 READ），按执行时间序。
+     * 只加载最近 [PAGE_SIZE] 条，更早的历史在上滑到顶时由 [loadOlder] 增量前插，
+     * 避免长对话进入时一次性全量联表查询 + 全量 measure 导致的卡顿。
      */
     private suspend fun buildInitialDisplay(
         convId: Long,
         realConv: Boolean
     ): List<ChatMessage> {
-        val items = mutableListOf<Pair<Long, ChatMessage>>()
-        val behaviors = localRepo.getCompletedBehaviors(convId)
-        // 真实对话模式：排队消息(status=-1)也要加载展示
+        val recent = localRepo.getCompletedBehaviorsBefore(convId, Long.MAX_VALUE, PAGE_SIZE)
+        // 取到满一页才说明还有更早的历史可加载；否则已是全部。
+        oldestExcuTime = if (recent.size >= PAGE_SIZE) recent.first().excuTime else null
+        // 真实对话模式：排队消息(status=-1)也要加载展示（始终在尾部，不参与分页）
         val queued = if (realConv) localRepo.getQueuedBehaviors(convId) else emptyList()
-        shownBehaviorIds += behaviors.map { it.behaviorId }
-        shownBehaviorIds += queued.map { it.behaviorId }
-        behaviors.forEach { b ->
-            items += Pair(b.excuTime, behaviorToChatMessage(b))
-        }
-        queued.forEach { b ->
-            items += Pair(b.excuTime, behaviorToChatMessage(b))
-        }
-        return items.sortedBy { it.first }.map { it.second }
+        val all = (recent + queued).sortedBy { it.excuTime }
+        shownBehaviorIds += all.map { it.behaviorId }
+        return all.map { behaviorToChatMessage(it) }
     }
 
     private val shownBehaviorIds = mutableSetOf<String>()
+
+    /** 每页加载的消息数（进入对话只取最近一页，上滑再增量取更早）。 */
+    private val PAGE_SIZE = 40
+
+    /** 当前已加载历史中「最早一条」的执行时间；null = 已无更早历史（不可再上滑加载）。 */
+    private var oldestExcuTime: Long? = null
+
+    /** 是否还能上滑加载更早的历史（供 UI 触发分页）。 */
+    val canLoadOlder: Boolean get() = oldestExcuTime != null
+
+    /**
+     * 上滑到顶时增量加载更早的历史，前插到列表头部。返回本次新增条数（0 = 无更多）。
+     * 用 [oldestExcuTime] 作游标，避免与已加载内容重叠或重复。
+     */
+    suspend fun loadOlder(): Int {
+        val convId = conversationId ?: return 0
+        val threshold = oldestExcuTime ?: return 0
+        val older = localRepo.getCompletedBehaviorsBefore(convId, threshold, PAGE_SIZE)
+        if (older.isEmpty()) {
+            oldestExcuTime = null
+            return 0
+        }
+        // older 为升序（旧→新），首条即本次最早；游标前移。
+        oldestExcuTime = older.first().excuTime
+        shownBehaviorIds += older.map { it.behaviorId }
+        val olderMsgs = older.map { behaviorToChatMessage(it) }
+        _messages.value = olderMsgs + _messages.value
+        return older.size
+    }
 
     fun startNewConversation() {
         conversationId = null
@@ -748,6 +724,7 @@ class ChatViewModel(
         _messages.value = emptyList()
         pendingQueueCount = 0
         staleRetryCount = 0
+        oldestExcuTime = null
     }
 
     override fun onCleared() {

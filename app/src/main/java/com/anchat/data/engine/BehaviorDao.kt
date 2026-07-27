@@ -65,6 +65,19 @@ interface BehaviorDao {
     )
     suspend fun getCompletedByConversation(conversationId: String): List<BehaviorEntity>
 
+    /**
+     * 取某对话下「早于 beforeExcuTime」的已完成行为，最多 limit 条，按执行时间降序返回（最新在前）。
+     * 用于进入对话只加载最近一页、上滑再增量取更早历史——避免长对话一次性全量加载导致卡顿。
+     */
+    @Query(
+        """SELECT b.* FROM behaviors b
+           JOIN raw_replies r ON b.batch_id = r.id
+           WHERE r.conversation_id = :conversationId AND b.status >= 1 AND b.excu_time < :beforeExcuTime
+           ORDER BY b.excu_time DESC
+           LIMIT :limit"""
+    )
+    suspend fun getCompletedBefore(conversationId: String, beforeExcuTime: Long, limit: Int): List<BehaviorEntity>
+
     /** 未读红点：按对话统计「已执行未读」行为（status=1） */
     @Query(
         "SELECT conversation_id AS conversationId, COUNT(*) AS cnt " +

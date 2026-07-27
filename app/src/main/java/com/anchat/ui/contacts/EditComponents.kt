@@ -32,7 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -41,7 +41,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
-import com.anchat.ui.theme.loadAvatarBitmap
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import com.anchat.ui.main.LocalApp
 import java.io.File
 import java.util.UUID
 
@@ -56,22 +58,26 @@ fun AvatarUploadBox(
     onPick: () -> Unit,
     onClear: () -> Unit
 ) {
-    val context = LocalContext.current
-    val bitmap = remember(avatarPath) { loadAvatarBitmap(avatarPath, context) }
+    val repo = LocalApp.current.avatarRepository
+    val initial = remember(avatarPath) { repo.peek(avatarPath) }
+    val bitmap by produceState<ImageBitmap?>(initial, avatarPath) {
+        value = repo.load(avatarPath)
+    }
+    val bmp = bitmap
     Box(
         modifier = Modifier
             .size(96.dp)
             .clip(RoundedCornerShape(16.dp))
             .background(
-                if (bitmap == null) MaterialTheme.colorScheme.surfaceVariant
+                if (bmp == null) MaterialTheme.colorScheme.surfaceVariant
                 else Color.Transparent
             )
             .clickable(onClick = onPick),
         contentAlignment = Alignment.Center
     ) {
-        if (bitmap != null) {
+        if (bmp != null) {
             Image(
-                bitmap = bitmap,
+                bitmap = bmp,
                 contentDescription = name,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop

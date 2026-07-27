@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
@@ -105,6 +106,7 @@ fun AnChatAppHost() {
 
 @Composable
 fun AnChatApp() {
+    val app = LocalApp.current
     val navController = rememberNavController()
 
     // 通知点击带会话 id 进来：组合时跳转到对应聊天，然后清空
@@ -119,6 +121,13 @@ fun AnChatApp() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
+    // 任意会话有未读 → 底部「AnChat」栏显示小红点。
+    // 用 remember 捕获同一个 Flow 实例：否则每次导航重组都新建 Flow 并重新订阅 DB，
+    // 切栏目时反复跑首查询是本界面切换卡顿的主因之一。
+    val unreadFlow = remember { app.localRepository.observeUnread() }
+    val unread by unreadFlow.collectAsStateWithLifecycle(initialValue = emptyMap<Long, Int>())
+    val hasUnread = unread.values.any { it > 0 }
+
     // 聊天页 / 角色名片·编辑页 / 对话身份编辑页 / 设置页 / 模型管理页隐藏底部栏（微信式全屏二级页）
     val showBottomBar = currentRoute != null
         && !currentRoute.startsWith("chat")
@@ -131,7 +140,7 @@ fun AnChatApp() {
 
     Scaffold(
         bottomBar = {
-            if (showBottomBar) AnChatBottomBar(navController)
+            if (showBottomBar) AnChatBottomBar(navController, hasUnread)
         }
     ) { padding ->
         NavHost(
@@ -183,9 +192,6 @@ fun AnChatApp() {
             }
             composable(Screen.Me.route) {
                 MeScreen(navController = navController)
-            }
-            composable("profile/edit") {
-                ProfileEditScreen(navController = navController)
             }
             composable("profile/edit") {
                 ProfileEditScreen(navController = navController)
@@ -246,15 +252,10 @@ fun AnChatApp() {
 }
 
 @Composable
-private fun AnChatBottomBar(navController: NavHostController) {
+private fun AnChatBottomBar(navController: NavHostController, hasUnread: Boolean) {
     val items = listOf(Screen.WeChat, Screen.Contacts, Screen.Discover, Screen.Me)
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-
-    // 任意会话有未读 → 底部「AnChat」栏显示小红点
-    val unread by LocalApp.current.localRepository.observeUnread()
-        .collectAsStateWithLifecycle(initialValue = emptyMap())
-    val hasUnread = unread.values.any { it > 0 }
 
     NavigationBar(
         containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface

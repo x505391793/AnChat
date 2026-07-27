@@ -4,13 +4,10 @@
 
 ## 已实现
 
-- 2026-07-10：基础对话功能移植完成（Spring Boot → Android 原生）
-- 2026-07-10：微信式 UI 重构
-- 2026-07-10：深色模式
-- 2026-07-11：UI 更新（通讯录 / 角色卡 / 个人名片 / 对话列表 / 推送通知）—— 暂时完结一阶段，后续持续调整
-- 2026-07-11：对话处理引擎（行为机）框架接入 + 原始 / 行为两层数据层
-- 2026-07-12：真实对话行为拆解引擎 + API 日志 + 头像/预览/状态机等多项修复
-
+- 2026-07-10：基础对话移植（Spring Boot → 原生）、微信式 UI、深色模式
+- 2026-07-11：通讯录 / 角色卡 / 名片 / 对话列表 / 推送通知；对话引擎（行为机）框架 + 原始 / 行为两层数据层
+- 2026-07-12：真实对话行为拆解引擎 + API 日志 + 头像 / 预览 / 状态机修复
+- 2026-07-27：性能优化 —— 头像加载抽 `AvatarRepository` 缓存层；`ConfigManager` 主身份内存缓存；列表项 lambda 稳定化
 
 ## 进行中
 
@@ -20,15 +17,14 @@
 ## 待实现
 
 1. 仿真实聊天界面交互（长按菜单、滑动删除、打字动画）
-2. 长期记忆
-3. 对话搜索 / 星标筛选
-4. 模型列表自动拉取
-5. 上下文压缩
-6. 真实时间感知
-7. 主动发起对话
-8. 开发者模式开关
-9. 数据迁移
-10. 多模型适应
+2. 对话搜索 / 星标筛选
+3. 模型列表自动拉取
+4. 上下文压缩
+5. 真实时间感知
+6. 主动发起对话
+7. 开发者模式开关
+8. 数据迁移
+9. 多模型适应
 
 ## 技术栈
 
@@ -42,7 +38,7 @@
 | 配置 | JSON 文件 |
 | 语言 | Kotlin 2.0.21 / JVM 17 |
 
-## 数据库 (Room v22)
+## 数据库 (Room v23)
 
 **conversations**
 
@@ -129,7 +125,7 @@
    - **非真实对话**：`ReplyAnalyzer.analyze(raw)` 直出单条 `Behavior`。
 5. `BehaviorScheduler` 按 `excuTime` 分时派发：到点翻 `status`（0→1）并经 `EngineSink.emit(EngineEvent.BehaviorDue)` 推给 UI；`ChatViewModel` 经 `engineEvents` 收事件渲染气泡。
 
-分层结果：`raw_replies`（传输日志）与 `behaviors`（用户视角消息）双数据并存、可互查；`ChatViewModel` 退化为「输入采集 + 引擎驱动 + 结果落库渲染」的薄适配层。
+`raw_replies`（传输日志）与 `behaviors`（用户视角消息）双表并存；`ChatViewModel` 退化为「输入采集 + 引擎驱动 + 落库渲染」薄适配层。
 
 ## 项目结构
 
@@ -146,9 +142,10 @@ app/src/main/java/com/anchat/
 │   └── spi/            # RequestSink / PersistenceSink / EngineSink 接缝
 ├── service/             # 前台推送服务
 ├── data/
-│   ├── config/          # AppConfig + ConfigManager
+│   ├── config/          # AppConfig + ConfigManager（主身份 / 主题内存缓存）
 │   ├── local/           # Room: DB, DAO, Entity
 │   ├── engine/          # 引擎三接缝真实现 + raw_replies/behaviors 实体
+│   ├── avatar/          # AvatarRepository（LruCache + 异步解码 + 并发去重）
 │   ├── remote/          # DeepSeekApi + ChatModels
 │   └── repository/      # Chat / Local / Settings
 ├── ui/

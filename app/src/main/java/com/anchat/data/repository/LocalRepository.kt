@@ -253,6 +253,15 @@ class LocalRepository(
     suspend fun getCompletedBehaviors(conversationId: Long): List<Behavior> =
         behaviorDao.getCompletedByConversation(conversationId.toString()).map { it.toBehavior() }
 
+    /**
+     * 进入对话初始加载 / 上滑增量加载：取「早于 beforeExcuTime」的最近 limit 条已完成行为。
+     * DAO 返回降序（新→旧），这里翻转为升序（旧→新）以便正确前插到列表头部。
+     */
+    suspend fun getCompletedBehaviorsBefore(conversationId: Long, beforeExcuTime: Long, limit: Int): List<Behavior> =
+        behaviorDao.getCompletedBefore(conversationId.toString(), beforeExcuTime, limit)
+            .reversed()
+            .map { it.toBehavior() }
+
     /** 取排队中的行为（status=-1），进入对话时加载展示 */
     suspend fun getQueuedBehaviors(conversationId: Long): List<Behavior> =
         behaviorDao.getQueuedByConversation(conversationId.toString()).map { it.toBehavior() }

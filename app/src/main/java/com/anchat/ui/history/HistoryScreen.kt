@@ -112,12 +112,24 @@ fun HistoryScreen(navController: NavHostController) {
                     .padding(padding)
             ) {
                 items(conversations, key = { it.id }) { conv ->
+                    // 列表项回调按 conv 字段 remember 稳定化：父重组（如 unread 变化）时
+                    // items lambda 重新执行，但每个 item 的 lambda 引用不变，避免全表项
+                    // 因参数引用变化而无效重组（仅 unreadCount 真变的项才重组）。
+                    val onClick = remember(conv.id, navController) {
+                        { navController.navigate("chat/${conv.id}") }
+                    }
+                    val onPin = remember(conv.id, conv.isPinned, viewModel) {
+                        { viewModel.togglePin(conv.id, !conv.isPinned) }
+                    }
+                    val onDelete = remember(conv.id, viewModel) {
+                        { viewModel.delete(conv.id) }
+                    }
                     ConversationItem(
                         conversation = conv,
                         unreadCount = unread[conv.id] ?: 0,
-                        onClick = { navController.navigate("chat/${conv.id}") },
-                        onPin = { viewModel.togglePin(conv.id, !conv.isPinned) },
-                        onDelete = { viewModel.delete(conv.id) }
+                        onClick = onClick,
+                        onPin = onPin,
+                        onDelete = onDelete
                     )
                 }
             }

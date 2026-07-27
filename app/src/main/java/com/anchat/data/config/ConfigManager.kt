@@ -138,6 +138,11 @@ class ConfigManager(private val context: Context) {
         _realConversationModelId.value = cfg.realConversationModelId
         _notificationsEnabled.value = cfg.notificationsEnabled
         _developerMode.value = cfg.developerMode
+        _defaultUserName.value = cfg.defaultUserName
+        _defaultUserDescription.value = cfg.defaultUserDescription
+        _defaultUserAvatar.value = cfg.defaultUserAvatar
+        _defaultUserGender.value = cfg.defaultUserGender
+        _defaultUserWechatId.value = cfg.defaultUserWechatId
     }
 
     /**
@@ -154,6 +159,11 @@ class ConfigManager(private val context: Context) {
         _realConversationModelId.value = newConfig.realConversationModelId
         _notificationsEnabled.value = newConfig.notificationsEnabled
         _developerMode.value = newConfig.developerMode
+        _defaultUserName.value = newConfig.defaultUserName
+        _defaultUserDescription.value = newConfig.defaultUserDescription
+        _defaultUserAvatar.value = newConfig.defaultUserAvatar
+        _defaultUserGender.value = newConfig.defaultUserGender
+        _defaultUserWechatId.value = newConfig.defaultUserWechatId
     }
 
     /** SAF tree URI if the user picked a custom directory. Null = File mode. */
@@ -250,16 +260,24 @@ class ConfigManager(private val context: Context) {
     }
 
     // ─── 主身份 ──────────────────────────────────────────
+    // 与 themeMode 等一致：内存缓存（StateFlow）作单一数据源，getter 只读内存值，
+    // 写入统一走 persist() 同步刷新。避免每次 getter 都 load() 读盘 + JSON 解析
+    // （此前主身份五字段漏了缓存，ChatViewModel.profileOf / MeScreen 每次都在主线程读盘）。
+    private val _defaultUserName = MutableStateFlow(load().defaultUserName)
+    private val _defaultUserDescription = MutableStateFlow(load().defaultUserDescription)
+    private val _defaultUserAvatar = MutableStateFlow(load().defaultUserAvatar)
+    private val _defaultUserGender = MutableStateFlow(load().defaultUserGender)
+    private val _defaultUserWechatId = MutableStateFlow(load().defaultUserWechatId)
 
-    fun getDefaultUserName(): String = load().defaultUserName
+    fun getDefaultUserName(): String = _defaultUserName.value
 
-    fun getDefaultUserDescription(): String = load().defaultUserDescription
+    fun getDefaultUserDescription(): String = _defaultUserDescription.value
 
-    fun getDefaultUserAvatar(): String = load().defaultUserAvatar
+    fun getDefaultUserAvatar(): String = _defaultUserAvatar.value
 
-    fun getDefaultUserGender(): String = load().defaultUserGender
+    fun getDefaultUserGender(): String = _defaultUserGender.value
 
-    fun getDefaultUserWechatId(): String = load().defaultUserWechatId
+    fun getDefaultUserWechatId(): String = _defaultUserWechatId.value
 
     fun saveDefaultIdentity(
         userName: String,
@@ -268,13 +286,15 @@ class ConfigManager(private val context: Context) {
         gender: String = "",
         wechatId: String = ""
     ) {
-        save(load().copy(
-            defaultUserName = userName.trim(),
-            defaultUserDescription = description.trim(),
-            defaultUserAvatar = avatar.trim(),
-            defaultUserGender = gender.trim(),
-            defaultUserWechatId = wechatId.trim()
-        ))
+        persist { cfg ->
+            cfg.copy(
+                defaultUserName = userName.trim(),
+                defaultUserDescription = description.trim(),
+                defaultUserAvatar = avatar.trim(),
+                defaultUserGender = gender.trim(),
+                defaultUserWechatId = wechatId.trim()
+            )
+        }
     }
 
     // ─── Path management ───────────────────────────────────

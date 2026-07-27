@@ -50,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,6 +88,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.boundsInWindow
+import kotlinx.coroutines.flow.filter
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -143,16 +145,42 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
     // 进入对话时直接定位到底部（最新消息），不带动画，避免长对话"从头滑到尾"；
     // 仅后续新增消息（用户发送 / AI 回复）才做平滑滚动。
     var initialScrolled by remember { mutableStateOf(false) }
-    LaunchedEffect(messages.size) {
+    // 记录「尾部消息 id」：分页上滑是头部前插（尾部不变），只有新消息到达（尾部变化）
+    // 才应自动滚到底部；否则上滑加载更早历史时会被错误拽回底部。
+    var prevTailId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(messages.size, messages.lastOrNull()?.behaviorId) {
         if (messages.isEmpty()) return@LaunchedEffect
+        val tailId = messages.lastOrNull()?.behaviorId
         if (!initialScrolled) {
             // 首次进入：无动画瞬时跳到底部
             listState.scrollToItem(messages.lastIndex)
             initialScrolled = true
-        } else {
-            // 后续新消息：平滑滚到底部
+            prevTailId = tailId
+        } else if (tailId != prevTailId) {
+            // 仅最新一条（尾部）变化 = 新消息到达：平滑滚到底部
             listState.animateScrollToItem(messages.lastIndex)
+            prevTailId = tailId
         }
+    }
+
+    // 上滑到顶部增量加载更早历史（分页）：避免进入长对话一次性全量加载导致卡顿。
+    // 用 snapshotFlow(Unit) 常驻监听，prepend 后用 scrollToItem 锚定位置，避免画面跳动。
+    val isLoadingOlder = remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .filter { it <= 2 }
+            .collect {
+                if (isLoadingOlder.value || !viewModel.canLoadOlder) return@collect
+                isLoadingOlder.value = true
+                try {
+                    val anchorIndex = listState.firstVisibleItemIndex
+                    val anchorOffset = listState.firstVisibleItemScrollOffset
+                    val added = viewModel.loadOlder()
+                    if (added > 0) listState.scrollToItem(anchorIndex + added, anchorOffset)
+                } finally {
+                    isLoadingOlder.value = false
+                }
+            }
     }
 
     Scaffold(
@@ -189,6 +217,19 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
                 .padding(padding)
                 .imePadding()
         ) {
+            // 列表项回调上提稳定化：避免父重组时 items lambda 重建 lambda 实例，
+            // 导致全表可见项因参数引用变化而无效重组。
+            val onDelete: (String) -> Unit = remember(viewModel) {
+                { viewModel.deleteMessage(it) }
+            }
+            val onAvatarClick: (Boolean) -> Unit = remember(navController, conversationId) {
+                { isUser ->
+                    val id = conversationId
+                    if (id != null) {
+                        navController.navigate("conversation/$id?part=${if (isUser) "self" else "ai"}")
+                    }
+                }
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -206,7 +247,11 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 12.dp, bottom = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(messages) { msg ->
+                items(
+                    messages,
+                    key = { it.behaviorId ?: "sys_${it.role}_${it.content.hashCode()}" },
+                    contentType = { it.role }
+                ) { msg ->
                     ChatMessageItem(
                         msg = msg,
                         dark = dark,
@@ -214,15 +259,8 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
                         charAvatar = profile?.charAvatar,
                         userAvatar = profile?.userAvatar,
                         showReasoning = thinkingEnabled,
-                        onDelete = { viewModel.deleteMessage(it) },
-                        onAvatarClick = { isUser ->
-                            val id = conversationId
-                            if (id != null) {
-                                navController.navigate(
-                                    "conversation/$id?part=${if (isUser) "self" else "ai"}"
-                                )
-                            }
-                        }
+                        onDelete = onDelete,
+                        onAvatarClick = onAvatarClick
                     )
                 }
             }
@@ -484,15 +522,20 @@ private fun MessageBubble(
         (if (dark) Color(0xFF2C2C2C) else Color.White)
     val textColor = if (dark) Color(0xFFE5E5E5) else Color(0xFF181818)
 
-    // 显示端剥离 markdown 语法（API 不塞任何额外提示词，纯客户端处理）
-    val displayText = stripMarkdown(text)
+    // 显示端剥离 markdown 语法（API 不塞任何额外提示词，纯客户端处理）。
+    // 用 remember 缓存：滚动回收 item 重 compose 时不再每屏重跑 6+ 条正则。
+    val displayText = remember(text) { stripMarkdown(text) }
 
     // 自定义文本工具栏（携带删除回调），接管系统浮动工具栏
     val toolbar = remember(behaviorId) {
         BubbleTextToolbar(onDelete = { if (behaviorId != null) onDelete(behaviorId) })
     }
 
-    // 气泡在窗口中的位置/尺寸：用于把菜单夹在可视区内，避免短气泡被菜单挤出屏幕。
+    // 气泡在窗口中的位置/尺寸：仅当菜单（系统选区工具栏）打开时才需要，
+    // 因此 onGloballyPositioned 也只在菜单打开时挂载——避免滚动时每帧写 state
+    // 触发 MessageBubble 重组→再测量→坐标又变的死循环（滚动掉帧元凶）。
+    val tb = toolbar.data
+    val menuOpen = tb != null
     var bubbleTopWindow by remember { mutableStateOf(0f) }
     var bubbleHeightPx by remember { mutableStateOf(0) }
     var bubbleWidthPx by remember { mutableStateOf(0) }
@@ -522,10 +565,14 @@ private fun MessageBubble(
                     modifier = Modifier
                         .background(bubbleColor, RoundedCornerShape(8.dp))
                         .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .onGloballyPositioned { coords ->
-                            bubbleTopWindow = coords.boundsInWindow().top
-                            bubbleHeightPx = coords.size.height
-                            bubbleWidthPx = coords.size.width
+                        .let { mod ->
+                            if (menuOpen) {
+                                mod.onGloballyPositioned { coords ->
+                                    bubbleTopWindow = coords.boundsInWindow().top
+                                    bubbleHeightPx = coords.size.height
+                                    bubbleWidthPx = coords.size.width
+                                }
+                            } else mod
                         }
                 ) {
                     Text(
@@ -541,7 +588,6 @@ private fun MessageBubble(
         // 绝不在本地手动 hide——否则选区仍在会触发系统反复 showMenu，形成“一直跳出来”的死循环。
         // 关键修复：菜单位置夹在可视区内——气泡上方够放就放上方，不够（短气泡贴顶）就放到气泡
         // 下方，避免菜单跑到屏幕外、逼 LazyColumn 上滚把气泡顶出去。
-        val tb = toolbar.data
         if (tb != null) {
             val mh = if (menuHeightPx == 0) with(density) { 48.dp.toPx() }.toInt() else menuHeightPx
             val menuH = density.run { mh.toDp() }
