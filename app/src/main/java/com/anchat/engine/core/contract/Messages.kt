@@ -26,7 +26,9 @@ data class RequestSpec(
 data class DecompositionSpec(
     val modelId: String,
     val apiKey: String,
-    val apiUrl: String
+    val apiUrl: String,
+    /** 提供方 id（见 ModelProviders）；空 = 旧逻辑，按 modelId 判断 DeepSeek 特性 */
+    val provider: String = ""
 )
 
 /** token 用量（与原 ChatUsage 同构，引擎侧独立定义） */
@@ -69,6 +71,8 @@ data class ConversationContext(
     val modelId: String,
     val apiKey: String,
     val apiUrl: String,
+    /** 提供方 id（见 ModelProviders）；空 = 旧逻辑，按 modelId 判断 DeepSeek 特性 */
+    val provider: String = "",
     val systemPrompt: String? = null,
     val batchId: String = "", // 引擎回合取消键（= 用户 raw.id），与 raw/behavior 的 batch_id 无关
     /** 是否开启「真实对话」：开启则原始回复进入行为拆解 API，否则直接返回单条行为 */

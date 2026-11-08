@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.runtime.Composable
@@ -42,12 +43,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.anchat.data.config.ModelConfig
+import com.anchat.data.config.ModelProviders
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Conversation
+import com.anchat.data.local.entity.WorldBook
 import com.anchat.engine.core.contract.RealConvVersion
 import com.anchat.ui.main.LocalApp
 import kotlinx.coroutines.launch
@@ -98,6 +102,9 @@ fun CharacterEditScreen(
     var modelExpanded by remember { mutableStateOf(false) }
     var versionExpanded by remember { mutableStateOf(false) }
 
+    /** 勾选的世界书 id（逗号分隔，升序） */
+    var worldBookIds by remember { mutableStateOf("") }
+
     var existing by remember { mutableStateOf<CharacterEntity?>(null) }   // 角色卡模式：原实体
     var conv by remember { mutableStateOf<Conversation?>(null) }         // 对话模式：原对话
 
@@ -108,6 +115,10 @@ fun CharacterEditScreen(
     // 角色侧头像 / 身份侧头像 各一个选择器
     val pickCharAvatar = rememberAvatarPicker { charAvatar = it }
     val pickUserAvatar = rememberAvatarPicker { userAvatar = it }
+
+    // 全部世界书（用于「世界书」多选清单）
+    val worldBooks by app.localRepository.observeWorldBooks()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
 
     // ── 预填：根据模式分别加载，逻辑与原两页一致 ──
     LaunchedEffect(editId, convId) {
@@ -149,6 +160,7 @@ fun CharacterEditScreen(
             thinkingEnabled = c?.charThinkingEnabled ?: character?.thinkingEnabled ?: false
             realConversation = c?.charRealConversation ?: character?.realConversation ?: false
             realConvVersion = c?.charRealConvVersion ?: character?.realConvVersion ?: "v1"
+            worldBookIds = conv?.worldBookIds?.ifBlank { "" } ?: character?.worldBookIds ?: ""
         } else if (editId >= 0) {
             val e = app.localRepository.getCharacter(editId)
             existing = e
@@ -166,6 +178,7 @@ fun CharacterEditScreen(
                 thinkingEnabled = e.thinkingEnabled
                 realConversation = e.realConversation
                 realConvVersion = e.realConvVersion
+                worldBookIds = e.worldBookIds
             }
         }
     }
@@ -220,6 +233,7 @@ fun CharacterEditScreen(
                                             charThinkingEnabled = if (isAi) thinkingEnabled else c.charThinkingEnabled,
                                             charRealConversation = if (isAi) realConversation else c.charRealConversation,
                                             charRealConvVersion = if (isAi) realConvVersion else c.charRealConvVersion,
+                                            worldBookIds = if (isAi) worldBookIds.trim() else c.worldBookIds,
                                             modelId = if (isAi) modelId else c.modelId,
                                             userIdentityOverridden = if (!isAi) true else c.userIdentityOverridden,
                                             userName = if (!isAi) userName.trim().ifBlank { null } else c.userName,
@@ -249,6 +263,7 @@ fun CharacterEditScreen(
                                             thinkingEnabled = thinkingEnabled,
                                             realConversation = realConversation,
                                             realConvVersion = realConvVersion,
+                                            worldBookIds = worldBookIds.trim(),
                                             createdAt = ex.createdAt,
                                             updatedAt = System.currentTimeMillis()
                                         )
@@ -266,7 +281,8 @@ fun CharacterEditScreen(
                                             modelId = modelId,
                                             thinkingEnabled = thinkingEnabled,
                                             realConversation = realConversation,
-                                            realConvVersion = realConvVersion
+                                            realConvVersion = realConvVersion,
+                                            worldBookIds = worldBookIds.trim()
                                         )
                                     }
                                     scope.launch {
@@ -375,6 +391,22 @@ fun CharacterEditScreen(
                 )
                 }
 
+                SectionHeader("世界书")
+                GroupCard {
+                    WorldBookFields(
+                        all = worldBooks,
+                        selectedIds = remember(worldBookIds) {
+                            worldBookIds.split(',').mapNotNull { it.trim().toLongOrNull() }.toSet()
+                        },
+                        onToggle = { id ->
+                            val set = worldBookIds.split(',').mapNotNull { it.trim().toLongOrNull() }
+                                .toMutableSet()
+                            if (!set.add(id)) set.remove(id)
+                            worldBookIds = set.sorted().joinToString(",")
+                        }
+                    )
+                }
+
                 if (!convMode) {
                     SectionHeader("你的身份")
                     GroupCard {
@@ -465,8 +497,11 @@ private fun ModelSettingsFields(
     expanded: Boolean,
     onExpanded: (Boolean) -> Unit
 ) {
+    // 同名模型可能来自不同提供方，优先按引用键精确匹配，避免选中态显示错标签
     val selectedModelName =
-        models.firstOrNull { it.id == modelId || it.name == modelId }?.name
+        (models.firstOrNull { it.id == modelId }
+            ?: models.firstOrNull { it.name == modelId })
+            ?.let { ModelProviders.displayName(it) }
             ?: "默认（跟随全局）"
     ExposedDropdownMenuBox(
         expanded = expanded,
@@ -495,7 +530,7 @@ private fun ModelSettingsFields(
             )
             models.forEach { m ->
                 DropdownMenuItem(
-                    text = { Text(m.name) },
+                    text = { Text(ModelProviders.displayName(m)) },
                     onClick = {
                         onModelId(m.id)
                         onExpanded(false)
@@ -583,6 +618,52 @@ private fun ModelSettingsFields(
                             onRealConvVersion(v)
                             onVersionExpanded(false)
                         }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 世界书多选：列出全部世界书并勾选；勾选结果以逗号分隔 id 回写给角色卡/对话快照。 */
+@Composable
+private fun WorldBookFields(
+    all: List<WorldBook>,
+    selectedIds: Set<Long>,
+    onToggle: (Long) -> Unit
+) {
+    if (all.isEmpty()) {
+        Text(
+            "还没有世界书，去「发现 → 世界书」添加卡片",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        all.forEach { wb ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggle(wb.id) }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = wb.id in selectedIds,
+                    onCheckedChange = { onToggle(wb.id) }
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        wb.title.ifBlank { "未命名" },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        wb.content.take(40),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

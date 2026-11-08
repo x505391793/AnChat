@@ -28,6 +28,14 @@ interface BehaviorDao {
     )
     suspend fun markAllReadByConversation(conversationId: String)
 
+    /** 按 conversation_id 直接翻已读（覆盖 raw_replies 联查不到的历史/孤儿行为） */
+    @Query("UPDATE behaviors SET status = 2 WHERE status = 1 AND conversation_id = :conversationId")
+    suspend fun markReadByConversationId(conversationId: String)
+
+    /** 清理用：取所有「已执行未读」行为的不同 conversation_id（含空串/非数字孤儿值） */
+    @Query("SELECT DISTINCT conversation_id FROM behaviors WHERE status = 1")
+    suspend fun getUnreadConversationIds(): List<String>
+
     /** 按整回合键 batch_id 整批删除行为（用户 text + AI speech/emotion/leave） */
     @Query("DELETE FROM behaviors WHERE batch_id = :batchId")
     suspend fun deleteByBatchId(batchId: String)
@@ -78,6 +86,14 @@ interface BehaviorDao {
     )
     suspend fun getCompletedBefore(conversationId: String, beforeExcuTime: Long, limit: Int): List<BehaviorEntity>
 
+    /** 备份导出：分页取全表，避免长历史一次性载入内存 */
+    @Query("SELECT * FROM behaviors ORDER BY excu_time ASC LIMIT :limit OFFSET :offset")
+    suspend fun getPagedAll(limit: Int, offset: Int): List<BehaviorEntity>
+
+    /** 备份去重用：只取主键与指纹所需字段（status 是运行时状态，不参与指纹） */
+    @Query("SELECT id, batch_id, `order`, type, role, content, duration, excu_time, conversation_id FROM behaviors LIMIT :limit OFFSET :offset")
+    suspend fun getPagedIdentity(limit: Int, offset: Int): List<BehaviorIdentity>
+
     /** 未读红点：按对话统计「已执行未读」行为（status=1） */
     @Query(
         "SELECT conversation_id AS conversationId, COUNT(*) AS cnt " +
@@ -97,7 +113,34 @@ interface BehaviorDao {
         "UPDATE behaviors SET batch_id = :batchId, status = 2 WHERE conversation_id = :conversationId AND status = -1"
     )
     suspend fun markQueuedAsSent(conversationId: String, batchId: String)
+
+    /** 气泡编辑：只改展示文本，不动批次/时间/状态 */
+    @Query("UPDATE behaviors SET content = :content WHERE id = :id")
+    suspend fun updateContent(id: String, content: String)
+
+    /**
+     * 重新生成：删掉「目标批次本身 + 该时间点之后」的全部行为。
+     * 用 batch_id 兜底同一批次内 excu_time 更早的兄弟行为（如 speech 已出、emotion 未出），
+     * 避免留下找不到 raw 的孤儿行为（界面上不可见但会污染数据）。
+     */
+    @Query(
+        "DELETE FROM behaviors WHERE conversation_id = :conversationId AND (batch_id = :batchId OR excu_time >= :cutoff)"
+    )
+    suspend fun deleteFrom(conversationId: String, batchId: String, cutoff: Long)
 }
+
+/** 备份去重用最小字段行：主键 + 参与指纹的列（不含运行时 status） */
+data class BehaviorIdentity(
+    val id: String,
+    @ColumnInfo(name = "batch_id") val batchId: String,
+    @ColumnInfo(name = "order") val order: Int,
+    val type: String,
+    val role: String,
+    val content: String,
+    val duration: String?,
+    @ColumnInfo(name = "excu_time") val excuTime: Long,
+    @ColumnInfo(name = "conversation_id") val conversationId: String
+)
 
 /** 未读计数行：conversation_id（字符串，与 behaviors.conversation_id 同值）+ 数量 */
 data class BehaviorUnread(

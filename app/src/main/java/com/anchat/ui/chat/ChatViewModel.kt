@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.anchat.AnChatApplication
+import com.anchat.data.config.ModelProviders
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.engine.core.contract.RealConvVersion
 import com.anchat.data.local.entity.Conversation
@@ -37,6 +38,9 @@ import kotlinx.coroutines.withContext
 
 /** 打字占位时长：每字毫秒（取折中值，后续可按手感调整）；最终再叠 ±10% 随机浮动。 */
 private const val TYPING_PER_CHAR_MS = 50L
+
+/** 非真实对话：「对方正在输入中」模拟延时固定 0.1s（真实对话仍按字数预估 + 随机浮动） */
+private const val NON_REAL_TYPING_DELAY_MS = 100L
 
 /** 自动触发计时：输入框失焦且键盘收起后等待 5 秒无变化则触发 */
 private const val AUTO_TRIGGER_DELAY_MS = 5000L
@@ -243,11 +247,16 @@ class ChatViewModel(
                             shownBehaviorIds += b.behaviorId
                             when (b.type) {
                                 BehaviorType.SPEECH -> {
-                                    // speech：顶部显示「对方正在输入中……」，按字数预估 + 随机浮动后直接弹出真实气泡
+                                    // speech：顶部显示「对方正在输入中……」后弹出真实气泡。
+                                    // 真实对话：按字数预估 + 随机浮动（逻辑不变）；
+                                    // 非真实对话：模拟延时固定 0.1s。
                                     val real = behaviorToChatMessage(b)
-                                    val base = (real.content.length * TYPING_PER_CHAR_MS)
-                                    val r = 0.9 + Random.nextDouble() * 0.2
-                                    val delayMs = (base * r).toLong()
+                                    val delayMs = if (_profile.value?.realConversation == true) {
+                                        val base = (real.content.length * TYPING_PER_CHAR_MS)
+                                        (base * (0.9 + Random.nextDouble() * 0.2)).toLong()
+                                    } else {
+                                        NON_REAL_TYPING_DELAY_MS
+                                    }
                                     _isTyping.value = true
                                     viewModelScope.launch {
                                         delay(delayMs)
@@ -399,7 +408,10 @@ class ChatViewModel(
             userWechatId = userWechatId,
             modelId = conv?.modelId ?: character?.modelId,
             thinkingEnabled = conv?.charThinkingEnabled ?: character?.thinkingEnabled ?: false,
-            realConversation = conv?.charRealConversation ?: character?.realConversation ?: false
+            realConversation = conv?.charRealConversation ?: character?.realConversation ?: false,
+            worldBookIds = conv?.worldBookIds?.ifBlank { null }
+                ?: character?.worldBookIds?.ifBlank { null }
+                ?: ""
         )
     }
 
@@ -442,8 +454,9 @@ class ChatViewModel(
     /**
      * 构造最终的 system 消息：
      * 对话级角色 systemPrompt + 对话级用户身份（回退到主角色卡 / 全局主身份）
+     * + 勾选的世界书（按 id 升序拼接，保证同一组世界书永远得到同一串文本 → prompt cache 稳定）。
      */
-    private fun buildSystemPrompt(): String? {
+    private suspend fun buildSystemPrompt(): String? {
         val profile = _profile.value ?: return null
         val parts = mutableListOf<String>()
 
@@ -466,6 +479,20 @@ class ChatViewModel(
             if (userGender != null) identityParts.add("性别为${userGender}。")
             if (userDesc != null) identityParts.add(userDesc)
             parts.add(identityParts.joinToString("\n"))
+        }
+
+        // 世界书：按 (createdAt, title, content) 排序 —— 三个字段都是备份会原样保留的，跨设备天然一致。
+        // 绝不能用自增 id：导入时新 id 按 createdAt DESC 的顺序重新分配，换机后 id 完全反序，
+        // 会让 system 文本里世界书段落整体颠倒，直接废掉 prompt cache。
+        val wbIds = profile.worldBookIds.split(',').mapNotNull { it.trim().toLongOrNull() }
+        if (wbIds.isNotEmpty()) {
+            val books = localRepo.getWorldBooksByIds(wbIds)
+                .sortedWith(compareBy({ it.createdAt }, { it.title }, { it.content }))
+            val wbText = books.joinToString(separator = "\n\n") { w ->
+                val title = w.title.ifBlank { "世界书" }
+                "【世界书：$title】\n${w.content}"
+            }
+            if (wbText.isNotBlank()) parts.add(wbText)
         }
 
         return if (parts.isEmpty()) null else parts.joinToString("\n\n")
@@ -545,17 +572,19 @@ class ChatViewModel(
                 }
                 return@launch
             }
-            val modelCfg = settingsRepo.getModelConfig(modelId)
-            val apiKey = modelCfg?.apiKey
-            if (apiKey.isNullOrBlank()) {
+            val modelCfg = settingsRepo.getModelConfig(modelId) ?: return@launch
+            val apiKey = modelCfg.apiKey
+            if (apiKey.isBlank()) {
                 withContext(Dispatchers.Main) {
-                    val label = modelCfg?.name ?: modelId
-                    Toast.makeText(getApplication(), "模型「$label」未配置 API Key，请到模型管理添加", Toast.LENGTH_LONG).show()
-                    _error.value = "模型「$label」未配置 API Key"
+                    Toast.makeText(getApplication(), "模型「${modelCfg.name}」未配置 API Key，请到模型管理添加", Toast.LENGTH_LONG).show()
+                    _error.value = "模型「${modelCfg.name}」未配置 API Key"
                 }
                 return@launch
             }
-            val apiUrl = modelCfg?.apiUrl ?: return@launch
+            // 聊天地址由提供方内置解析，旧数据的自定义地址走 LEGACY 兜底原样保留
+            val (provider, apiUrl) = ModelProviders.resolve(modelCfg)
+            // 引用键可能因跨服务方同名带了前缀，发请求必须用真实模型名
+            val apiModelName = ModelProviders.apiModel(modelCfg)
 
             // 双重保障 2：确认 DB 已落库最新用户数据再发请求
             val queuedNow = localRepo.getQueuedBehaviors(convId)
@@ -601,9 +630,10 @@ class ChatViewModel(
                 val context = ConversationContext(
                     conversationId = convId.toString(),
                     systemPrompt = systemPrompt,
-                    modelId = modelId,
+                    modelId = apiModelName,
                     apiKey = apiKey,
                     apiUrl = apiUrl,
+                    provider = provider,
                     batchId = rawId,
                     realConversation = realConv,
                     // 版本与主开关必须一致：关闭真实对话后即便角色卡曾选 v2，也强制退回 DEFAULT(v1) 纯文本请求，
@@ -635,6 +665,102 @@ class ChatViewModel(
         _error.value = null
     }
 
+    /** 气泡编辑：就地改列表文本 + 落库（DB 内同步上下文原文，保证下次请求发的是改过的内容） */
+    fun updateMessage(behaviorId: String, newText: String) {
+        val t = newText.trim()
+        if (behaviorId.isBlank() || t.isEmpty()) return
+        _messages.value = _messages.value.map {
+            if (it.behaviorId == behaviorId) it.copy(content = t) else it
+        }
+        viewModelScope.launch(Dispatchers.IO) { localRepo.updateMessageContent(behaviorId, t) }
+    }
+
+    /**
+     * 重新生成：把这个 AI 气泡及其之后的整段删掉，再把「它前面那条用户消息」重发一次。
+     * 只删数据不新插用户气泡——引擎按 raw_replies 重建上下文，末尾就是被重发的用户消息。
+     */
+    fun regenerateMessage(behaviorId: String) {
+        if (_isLoading.value) {
+            Toast.makeText(getApplication(), "正在回复中，请稍候", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val convId = conversationId ?: return
+        val idx = _messages.value.indexOfFirst { it.behaviorId == behaviorId }
+        if (idx < 0 || _messages.value[idx].role != "assistant") return
+
+        anchatApp.engineScope.launch {
+            // 有未发送的排队消息时不允许重发：截断会把它一起删掉（用户会以为丢了输入）
+            if (localRepo.getQueuedBehaviors(convId).isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(getApplication(), "有未发送的消息，请先触发发送", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+            val character = resolveCharacter()
+            val lastUser = try {
+                localRepo.truncateForRegenerate(behaviorId)
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(getApplication(), "重新生成失败：${e.message ?: "数据库异常"}", Toast.LENGTH_LONG).show()
+                }
+                return@launch
+            }
+            // 数据已截断：界面同步收起该条及之后所有气泡
+            withContext(Dispatchers.Main) { _messages.value = _messages.value.take(idx) }
+            if (lastUser == null) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(getApplication(), "这条前面没有用户消息，无法重新生成", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+
+            // 解析模型凭证（与 flushQueue 同一套提示）
+            val modelId = _profile.value?.modelId ?: character?.modelId
+                ?: settingsRepo.getDefaultModelId() ?: _defaultModel.value
+            if (modelId.isBlank()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(getApplication(), "请先在「模型管理」中添加模型", Toast.LENGTH_LONG).show()
+                }
+                return@launch
+            }
+            val modelCfg = settingsRepo.getModelConfig(modelId) ?: return@launch
+            val apiKey = modelCfg.apiKey
+            if (apiKey.isBlank()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(getApplication(), "模型「${modelCfg.name}」未配置 API Key", Toast.LENGTH_LONG).show()
+                }
+                return@launch
+            }
+            val (provider, apiUrl) = ModelProviders.resolve(modelCfg)
+            val apiModelName = ModelProviders.apiModel(modelCfg)
+
+            withContext(Dispatchers.Main) {
+                _isLoading.value = true
+                RequestForegroundService.begin(getApplication())
+            }
+            val conv = localRepo.getConversation(convId)
+            applyProfile(conv, character)
+            val realConv = _profile.value?.realConversation == true
+            val context = ConversationContext(
+                conversationId = convId.toString(),
+                systemPrompt = buildSystemPrompt(),
+                modelId = apiModelName,
+                apiKey = apiKey,
+                apiUrl = apiUrl,
+                provider = provider,
+                batchId = lastUser.id,
+                realConversation = realConv,
+                realConvVersion = if (realConv) {
+                    conv?.charRealConvVersion ?: character?.realConvVersion ?: RealConvVersion.DEFAULT
+                } else {
+                    RealConvVersion.DEFAULT
+                },
+                decompSpec = buildDecompSpec()
+            )
+            engine.send(TurnInput(lastUser.content), context)
+        }
+    }
+
     // ─── 真实对话：行为层驱动 UI 的辅助 ───────────────
 
     /** 该对话是否处于真实对话模式（角色/对话开关开启） */
@@ -654,7 +780,8 @@ class ChatViewModel(
         val id = configManager.getRealConversationModelId() ?: return null
         val m = settingsRepo.getModelConfig(id) ?: return null
         if (m.apiKey.isBlank()) return null
-        return DecompositionSpec(modelId = m.id, apiKey = m.apiKey, apiUrl = m.apiUrl)
+        val (provider, apiUrl) = ModelProviders.resolve(m)
+        return DecompositionSpec(modelId = ModelProviders.apiModel(m), apiKey = m.apiKey, apiUrl = apiUrl, provider = provider)
     }
 
     /** 行为 → 聊天展示消息（speech/emotion/leave 由 ChatScreen 按 behaviorType 区分渲染） */

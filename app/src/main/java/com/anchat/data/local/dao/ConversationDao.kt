@@ -25,6 +25,7 @@ interface ConversationDao {
                                 AND b.status >= 1 AND b.type IN ('speech','text')
                               ORDER BY b.excu_time DESC LIMIT 1), '') AS preview
            FROM conversations c
+           WHERE c.archived = 0
            ORDER BY c.is_pinned DESC, c.updated_at DESC"""
     )
     fun observeAll(): Flow<List<ConversationListItem>>
@@ -39,15 +40,32 @@ interface ConversationDao {
                                 AND b.status >= 1 AND b.type IN ('speech','text')
                               ORDER BY b.excu_time DESC LIMIT 1), '') AS preview
            FROM conversations c
+           WHERE c.archived = 0
            ORDER BY c.is_pinned DESC, c.updated_at DESC"""
     )
     suspend fun getAll(): List<ConversationListItem>
+
+    /** 备份导出：取完整实体（列表页的 ConversationListItem 只含展示字段，不能用于导出） */
+    @Query("SELECT * FROM conversations ORDER BY id ASC")
+    suspend fun getAllFull(): List<Conversation>
+
+    /** 备份导入：批量插入并返回新 id（主键冲突时按调用方重映射策略处理） */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(list: List<Conversation>): List<Long>
 
     @Query("SELECT * FROM conversations WHERE id = :id")
     suspend fun getById(id: Long): Conversation?
 
     @Query("SELECT * FROM conversations WHERE id = :id")
     fun observeById(id: Long): Flow<Conversation?>
+
+    /** 故事集列表：取所有封存对话（archived=1），按更新时间倒序 */
+    @Query("SELECT * FROM conversations WHERE archived = 1 ORDER BY updated_at DESC")
+    fun getArchived(): Flow<List<Conversation>>
+
+    /** 清理用：取所有已封存对话 id */
+    @Query("SELECT id FROM conversations WHERE archived = 1")
+    suspend fun getArchivedIds(): List<Long>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(conversation: Conversation): Long

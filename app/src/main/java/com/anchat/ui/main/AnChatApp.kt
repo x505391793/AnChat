@@ -52,6 +52,9 @@ import com.anchat.ui.contacts.CharacterCardScreen
 import com.anchat.ui.contacts.CharacterEditScreen
 import com.anchat.ui.contacts.ContactsScreen
 import com.anchat.ui.discover.DiscoverScreen
+import com.anchat.ui.story.StoriesScreen
+import com.anchat.ui.story.StoryDetailScreen
+import com.anchat.ui.story.WorldBookScreen
 import com.anchat.ui.history.HistoryScreen
 import com.anchat.ui.me.MeScreen
 import com.anchat.ui.me.ProfileEditScreen
@@ -128,7 +131,7 @@ fun AnChatApp() {
     val unread by unreadFlow.collectAsStateWithLifecycle(initialValue = emptyMap<Long, Int>())
     val hasUnread = unread.values.any { it > 0 }
 
-    // 聊天页 / 角色名片·编辑页 / 对话身份编辑页 / 设置页 / 模型管理页隐藏底部栏（微信式全屏二级页）
+    // 聊天页 / 角色名片·编辑页 / 对话身份编辑页 / 设置页 / 模型管理页 / 故事集隐藏底部栏（微信式全屏二级页）
     val showBottomBar = currentRoute != null
         && !currentRoute.startsWith("chat")
         && !currentRoute.startsWith("character")
@@ -136,6 +139,9 @@ fun AnChatApp() {
         && !currentRoute.startsWith("models")
         && !currentRoute.startsWith("profile")
         && !currentRoute.startsWith("logs")
+        && !currentRoute.startsWith("story")
+        && !currentRoute.startsWith("stories")
+        && !currentRoute.startsWith("worldbooks")
         && currentRoute != "settings"
 
     Scaffold(
@@ -188,7 +194,25 @@ fun AnChatApp() {
                 )
             }
             composable(Screen.Discover.route) {
-                DiscoverScreen()
+                DiscoverScreen(navController = navController)
+            }
+            composable("stories") {
+                StoriesScreen(navController = navController)
+            }
+            composable(
+                route = "story/{convId}",
+                arguments = listOf(
+                    navArgument("convId") {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    }
+                )
+            ) { backStackEntry ->
+                val convId = backStackEntry.arguments?.getLong("convId") ?: -1L
+                StoryDetailScreen(navController = navController, convId = convId)
+            }
+            composable("worldbooks") {
+                WorldBookScreen(navController = navController)
             }
             composable(Screen.Me.route) {
                 MeScreen(navController = navController)

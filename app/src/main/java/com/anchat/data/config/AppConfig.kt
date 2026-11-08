@@ -51,4 +51,9 @@ data class AppConfig(
      * 关闭则走正常流程，直接调用 API 发送对话。默认关闭。
      */
     val developerMode: Boolean = false,
+    /**
+     * 故事集阅读进度：对话 id → 已读比例(0~1)。
+     * 纯阅读状态，存配置而非 Room（免迁移），随全量备份一起走。
+     */
+    val storyProgress: Map<String, Float> = emptyMap(),
 )

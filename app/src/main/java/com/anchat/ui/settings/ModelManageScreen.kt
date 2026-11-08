@@ -17,8 +17,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,22 +48,21 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import com.anchat.data.config.ModelConfig
+import com.anchat.data.config.ModelProviders
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelManageScreen(navController: NavHostController) {
     val viewModel: ModelManageViewModel = viewModel()
+    val provider by viewModel.provider.collectAsStateWithLifecycle()
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
-    val apiUrl by viewModel.apiUrl.collectAsStateWithLifecycle()
-    val fetched by viewModel.fetched.collectAsStateWithLifecycle()
-    val isFetching by viewModel.isFetching.collectAsStateWithLifecycle()
+    val modelName by viewModel.modelName.collectAsStateWithLifecycle()
     val models by viewModel.models.collectAsStateWithLifecycle(initialValue = emptyList())
-    val defaultModelId by viewModel.defaultModelId.collectAsStateWithLifecycle(initialValue = null)
     val chatModelId by viewModel.repo.observeChatModelId().collectAsStateWithLifecycle(initialValue = null)
     val realConvModelId by viewModel.repo.observeRealConversationModelId().collectAsStateWithLifecycle(initialValue = null)
     val message by viewModel.message.collectAsStateWithLifecycle()
 
-    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var providerExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(message) {
         if (message != null) {
@@ -106,7 +103,7 @@ fun ModelManageScreen(navController: NavHostController) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // ─── 步骤①：输入 apiKey + apiUrl ─────────
+            // ─── 添加模型：提供方 + Key + 模型名 ─────────
             item {
                 SectionTitle("添加模型")
                 Card(
@@ -117,16 +114,51 @@ fun ModelManageScreen(navController: NavHostController) {
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text(
-                            "填写服务商凭证后拉取可用模型，可多选并添加。添加的模型会连同 Key 一起存入配置文件。",
+                            "选择模型提供方，填写 API Key 与模型名后保存。模型名原样作为请求中的 model 值；不同提供方可以添加同名模型。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall
                         )
                         Spacer(Modifier.height(12.dp))
+
+                        ExposedDropdownMenuBox(
+                            expanded = providerExpanded,
+                            onExpandedChange = { providerExpanded = it },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            TextField(
+                                value = ModelProviders.label(provider),
+                                onValueChange = {},
+                                readOnly = true,
+                                singleLine = true,
+                                placeholder = { Text("模型提供方", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = providerExpanded) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = fieldColors()
+                            )
+                            DropdownMenu(
+                                expanded = providerExpanded,
+                                onDismissRequest = { providerExpanded = false }
+                            ) {
+                                ModelProviders.ALL.forEach { spec ->
+                                    DropdownMenuItem(
+                                        text = { Text(spec.label) },
+                                        onClick = {
+                                            viewModel.onProviderChange(spec.id)
+                                            providerExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
                         TextField(
                             value = apiKey,
                             onValueChange = viewModel::onKeyChange,
                             placeholder = { Text("API Key", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                             visualTransformation = PasswordVisualTransformation(),
+                            singleLine = true,
                             keyboardOptions = KeyboardOptions(autoCorrect = false),
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
@@ -134,9 +166,10 @@ fun ModelManageScreen(navController: NavHostController) {
                         )
                         Spacer(Modifier.height(10.dp))
                         TextField(
-                            value = apiUrl,
-                            onValueChange = viewModel::onUrlChange,
-                            placeholder = { Text("API 地址（基地址）", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            value = modelName,
+                            onValueChange = viewModel::onModelNameChange,
+                            placeholder = { Text("模型名称（如 deepseek-v4-pro / MiniMax-H3）", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            singleLine = true,
                             keyboardOptions = KeyboardOptions(autoCorrect = false),
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
@@ -145,76 +178,11 @@ fun ModelManageScreen(navController: NavHostController) {
                         Spacer(Modifier.height(12.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             Text(
-                                if (isFetching) "拉取中…" else "拉取模型",
-                                color = if (isFetching) MaterialTheme.colorScheme.onSurfaceVariant
-                                else MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable(enabled = !isFetching) { viewModel.fetch() }
+                                "保存模型",
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { viewModel.save() }
                             )
                         }
-                    }
-                }
-            }
-
-            // ─── 步骤②+③：勾选拉取到的模型 ─────────
-            if (fetched.isNotEmpty()) {
-                item {
-                    SectionTitle("拉取到的模型（可多选）")
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        shape = RoundedCornerShape(12.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                    ) {
-                        Column {
-                            fetched.forEachIndexed { index, m ->
-                                val checked = selectedIds.contains(m.id)
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            selectedIds = selectedIds.toMutableSet().apply {
-                                                if (checked) remove(m.id) else add(m.id)
-                                            }.toSet()
-                                        }
-                                        .padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = checked,
-                                        onCheckedChange = {
-                                            selectedIds = selectedIds.toMutableSet().apply {
-                                                if (it) add(m.id) else remove(m.id)
-                                            }.toSet()
-                                        },
-                                        colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
-                                    )
-                                    Spacer(Modifier.width(12.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(m.name.ifBlank { m.id }, color = MaterialTheme.colorScheme.onSurface)
-                                        Text(m.id, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                                if (index < fetched.lastIndex) {
-                                    HorizontalDivider(
-                                        color = MaterialTheme.colorScheme.outlineVariant,
-                                        modifier = Modifier.padding(start = 16.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        Text(
-                            "添加所选（${selectedIds.size}）",
-                            color = if (selectedIds.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
-                            else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable(enabled = selectedIds.isNotEmpty()) {
-                                viewModel.addSelected(selectedIds)
-                                selectedIds = emptySet()
-                            }
-                        )
                     }
                 }
             }
@@ -230,7 +198,7 @@ fun ModelManageScreen(navController: NavHostController) {
                 ) {
                     if (models.isEmpty()) {
                         Text(
-                            "还没有模型，先在上方拉取并添加。",
+                            "还没有模型，先在上方填写并保存。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(16.dp)
@@ -245,9 +213,9 @@ fun ModelManageScreen(navController: NavHostController) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(Modifier.weight(1f)) {
-                                        Text(model.name.ifBlank { model.id }, color = MaterialTheme.colorScheme.onSurface)
+                                        Text(model.name.ifBlank { ModelProviders.apiModel(model) }, color = MaterialTheme.colorScheme.onSurface)
                                         Text(
-                                            "${model.id} · ${if (model.apiKey.isNotBlank()) "Key ${maskKey(model.apiKey)}" else "未配置 Key"} · ${model.apiUrl.ifBlank { "无地址" }}",
+                                            "${ModelProviders.apiModel(model)} · ${ModelProviders.label(ModelProviders.resolve(model).first)} · ${if (model.apiKey.isNotBlank()) "Key ${maskKey(model.apiKey)}" else "未配置 Key"}",
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             style = MaterialTheme.typography.bodySmall
                                         )
@@ -323,8 +291,8 @@ private fun ModelPicker(
     onSelect: (String?) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = models.firstOrNull { it.id == selectedId }?.name
-        ?: models.firstOrNull { it.id == selectedId }?.id
+    val selectedName = models.firstOrNull { it.id == selectedId }
+        ?.let { ModelProviders.displayName(it) }
         ?: "未选择"
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
@@ -353,7 +321,7 @@ private fun ModelPicker(
                 )
                 models.forEach { m ->
                     DropdownMenuItem(
-                        text = { Text(m.name.ifBlank { m.id }) },
+                        text = { Text(ModelProviders.displayName(m)) },
                         onClick = { onSelect(m.id); expanded = false }
                     )
                 }

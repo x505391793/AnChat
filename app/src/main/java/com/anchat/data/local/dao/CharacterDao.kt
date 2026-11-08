@@ -19,6 +19,10 @@ interface CharacterDao {
     @Query("SELECT * FROM character ORDER BY createdAt DESC")
     suspend fun getAll(): List<CharacterEntity>
 
+    /** 备份导入：批量插入并返回新 id */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(list: List<CharacterEntity>): List<Long>
+
     @Query("SELECT * FROM character ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<CharacterEntity>>
 

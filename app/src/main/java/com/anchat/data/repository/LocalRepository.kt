@@ -5,12 +5,14 @@ import com.anchat.data.engine.BehaviorEntity
 import com.anchat.data.engine.RawReplyEntity
 import com.anchat.data.local.dao.CharacterDao
 import com.anchat.data.local.dao.ConversationDao
+import com.anchat.data.local.dao.WorldBookDao
 import com.anchat.data.local.AppDatabase
 import com.anchat.data.engine.RawReplyDao
 import com.anchat.data.engine.RawReplyTotals
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Conversation
 import com.anchat.data.local.entity.ConversationListItem
+import com.anchat.data.local.entity.WorldBook
 import com.anchat.engine.core.contract.Behavior
 import com.anchat.engine.core.contract.BehaviorType
 import com.anchat.engine.core.contract.RawReply
@@ -25,7 +27,8 @@ class LocalRepository(
     private val conversationDao: ConversationDao,
     private val characterDao: CharacterDao,
     private val rawReplyDao: RawReplyDao,
-    private val behaviorDao: BehaviorDao
+    private val behaviorDao: BehaviorDao,
+    private val worldBookDao: WorldBookDao
 ) {
     // ─── 对话 ────────────────────────────────────────
     fun observeConversations(): Flow<List<ConversationListItem>> = conversationDao.observeAll()
@@ -36,6 +39,48 @@ class LocalRepository(
     suspend fun renameConversation(id: Long, title: String) = conversationDao.rename(id, title)
     suspend fun setStar(id: Long, isStar: Boolean) = conversationDao.setStar(id, isStar)
     suspend fun setPinned(id: Long, pinned: Boolean) = conversationDao.setPinned(id, pinned)
+
+    /** 封存为故事：把对话全部「可读」消息转为纯文本分段写入 story_text，并置 archived=1。
+     *  底层 raw_replies/behaviors 全部保留，绝不删原聊天记录。
+     *  联动清未读：该对话「已执行未读」行为（status=1）翻为已读——否则对话从主列表
+     *  （archived=0 过滤）消失后，底栏红点挂着对应的未读永无法进去清除。 */
+    suspend fun archiveConversation(id: Long) {
+        val conv = conversationDao.getById(id) ?: return
+        val speakerName = conv.charName?.takeIf { it.isNotBlank() } ?: conv.title
+        val text = behaviorDao.getCompletedByConversation(id.toString())
+            .filter { it.role == "user" || it.role == "assistant" }
+            .sortedBy { it.excuTime }
+            .joinToString(separator = "\n\n") { b ->
+                val prefix = if (b.role == "user") "我" else speakerName
+                "$prefix：${b.content}"
+            }
+        database.withTransaction {
+            behaviorDao.markAllReadByConversation(id.toString())
+            behaviorDao.markReadByConversationId(id.toString())
+            conversationDao.update(
+                conv.copy(
+                    archived = true,
+                    storyText = text,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    /** 故事集列表：所有封存对话 */
+    fun getArchivedConversations(): Flow<List<Conversation>> = conversationDao.getArchived()
+
+    /** 保存故事编辑：回写标题与纯文本 */
+    suspend fun updateStory(id: Long, title: String, storyText: String) {
+        val conv = conversationDao.getById(id) ?: return
+        conversationDao.update(
+            conv.copy(
+                title = title,
+                storyText = storyText,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
 
     /** 删除对话：联动清其 raw_replies / behaviors（二者无 FK 到 conversations） */
     suspend fun deleteConversation(id: Long) {
@@ -218,6 +263,42 @@ class LocalRepository(
         }
     }
 
+    /**
+     * 编辑单条气泡。
+     *
+     * 只改 behaviors 会导致「界面显示新文本、下次请求仍发旧文本」（上下文取 raw_replies），
+     * 所以必须同步 raw。但只有行为与 raw 是 1:1 纯文本关系时才同步：
+     *  - 真实对话 v2 的 assistant raw 是行为 JSON，直接改成纯文本会破坏后续请求格式；
+     *  - v1 一条 raw 会拆成多条行为，改其中一条不代表整条 raw。
+     * 判定条件用「旧行为文本 == raw 原文」，成立即说明这条行为就是 raw 的全貌。
+     */
+    suspend fun updateMessageContent(behaviorId: String, newText: String) {
+        database.withTransaction {
+            val b = behaviorDao.getById(behaviorId) ?: return@withTransaction
+            val old = b.content
+            behaviorDao.updateContent(behaviorId, newText)
+            val raw = rawReplyDao.getById(b.batchId) ?: return@withTransaction
+            if (raw.kind != "decomp" && raw.content == old) {
+                rawReplyDao.updateContent(raw.id, newText)
+            }
+        }
+    }
+
+    /**
+     * 重新生成准备：删掉该气泡所在批次及之后的所有行为与原始回复。
+     * @return 剩余历史最后一条用户原文（作为重新生成的输入）；null = 前面没有用户消息（如开场白）
+     */
+    suspend fun truncateForRegenerate(behaviorId: String): RawReplyEntity? {
+        val b = behaviorDao.getById(behaviorId) ?: return null
+        val convId = b.conversationId
+        val raw = rawReplyDao.getById(b.batchId) ?: return null
+        database.withTransaction {
+            behaviorDao.deleteFrom(convId, b.batchId, b.excuTime)
+            rawReplyDao.deleteFrom(convId, raw.id, raw.createdAt)
+        }
+        return rawReplyDao.getLastUser(convId)
+    }
+
 
     /** 打开会话清未读：把该对话下所有「已执行未读」行为翻为已读（status 1 → 2） */
     suspend fun markRead(conversationId: Long) =
@@ -228,6 +309,26 @@ class LocalRepository(
         behaviorDao.observeUnread().map { list ->
             list.associate { (it.conversationId.toLongOrNull() ?: -1L) to it.cnt }
         }
+
+    /**
+     * 一次性清理「无法消除的红点」（幂等，启动时调用）：
+     *  ① 属于已封存对话的未读行为——对话不在主列表，用户永远点不掉；
+     *  ② 孤儿未读：conversation_id 为空/非数字（会聚成 -1L 键让底栏常亮），
+     *     或指向已不存在对话的历史数据。
+     * 正常在册对话的未读不动。
+     */
+    suspend fun clearStuckUnread() {
+        conversationDao.getArchivedIds().forEach { id ->
+            behaviorDao.markAllReadByConversation(id.toString())
+            behaviorDao.markReadByConversationId(id.toString())
+        }
+        behaviorDao.getUnreadConversationIds().forEach { cid ->
+            val convId = cid.toLongOrNull()
+            if (convId == null || conversationDao.getById(convId) == null) {
+                behaviorDao.markReadByConversationId(cid)
+            }
+        }
+    }
 
     // ─── 行为（真实对话分时推送） ─────────────────
     private fun BehaviorEntity.toBehavior() = Behavior(
@@ -308,4 +409,17 @@ class LocalRepository(
     suspend fun insertCharacter(character: CharacterEntity): Long = characterDao.insert(character)
     suspend fun updateCharacter(character: CharacterEntity) = characterDao.update(character)
     suspend fun deleteCharacter(character: CharacterEntity) = characterDao.delete(character)
+
+    // ─── 世界书 ──────────────────────────────────────
+    fun observeWorldBooks(): Flow<List<WorldBook>> = worldBookDao.observeAll()
+    suspend fun getAllWorldBooks(): List<WorldBook> = worldBookDao.getAll()
+    suspend fun getWorldBook(id: Long): WorldBook? = worldBookDao.getById(id)
+    suspend fun insertWorldBook(worldBook: WorldBook): Long = worldBookDao.insert(worldBook)
+    suspend fun updateWorldBook(worldBook: WorldBook) = worldBookDao.update(worldBook)
+    suspend fun deleteWorldBook(worldBook: WorldBook) = worldBookDao.delete(worldBook)
+    /** 按 id 批量取世界书（用于拼 system 提示词；调用方负责排序） */
+    suspend fun getWorldBooksByIds(ids: List<Long>): List<WorldBook> {
+        if (ids.isEmpty()) return emptyList()
+        return worldBookDao.getByIds(ids)
+    }
 }

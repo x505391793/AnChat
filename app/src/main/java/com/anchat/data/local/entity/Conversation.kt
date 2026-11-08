@@ -3,11 +3,13 @@ package com.anchat.data.local.entity
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 /**
  * A chat conversation.
  */
 @Entity(tableName = "conversations")
+@Serializable
 data class Conversation(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(name = "title") val title: String = "新对话",
@@ -40,5 +42,14 @@ data class Conversation(
     @ColumnInfo(name = "user_description") val userDescription: String? = null,
 
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+
+    // ── 封存为故事（「发现 → 故事集」） ──
+    /** 是否封存为故事：true 后从对话列表消失、进入故事集 */
+    @ColumnInfo(name = "archived") val archived: Boolean = false,
+    /** 故事纯文本（封存时由 behaviors 生成、之后用户可改）；null 表示尚未生成 */
+    @ColumnInfo(name = "story_text") val storyText: String? = null,
+
+    /** 对话级世界书勾选（逗号分隔 id；对话内角色编辑可覆盖主角色卡）；null = 跟随主角色卡 */
+    @ColumnInfo(name = "world_book_ids") val worldBookIds: String? = null
 )

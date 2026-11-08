@@ -2,8 +2,10 @@ package com.anchat
 
 import android.app.Application
 import com.anchat.data.avatar.AvatarRepository
+import com.anchat.data.backup.BackupRepository
 import com.anchat.data.config.ConfigManager
 import com.anchat.data.config.ModelConfig
+import com.anchat.data.config.ModelProviders
 import com.anchat.data.engine.EngineEngineSink
 import com.anchat.data.engine.EnginePersistenceSink
 import com.anchat.data.engine.EngineRequestSink
@@ -47,7 +49,8 @@ class AnChatApplication : Application() {
             database.conversationDao(),
             database.characterDao(),
             database.rawReplyDao(),
-            database.behaviorDao()
+            database.behaviorDao(),
+            database.worldBookDao()
         )
     }
     val settingsRepository: SettingsRepository by lazy {
@@ -88,6 +91,21 @@ class AnChatApplication : Application() {
         AvatarRepository(this, engineScope)
     }
 
+    /** 全量备份 / 恢复：设置 + API + 角色卡 + 聊天记录 ⇄ 单个 JSON 文件 */
+    val backupRepository: BackupRepository by lazy {
+        BackupRepository(
+            context = this,
+            configManager = configManager,
+            database = database,
+            characterDao = database.characterDao(),
+            conversationDao = database.conversationDao(),
+            rawReplyDao = database.rawReplyDao(),
+            behaviorDao = database.behaviorDao(),
+            worldBookDao = database.worldBookDao(),
+            avatarRepository = avatarRepository
+        )
+    }
+
     /** 系统通知推送器（依赖引擎事件流；受「通知推送」开关控制） */
     private val pushNotifier by lazy {
         PushNotifier(this, localRepository) { configManager.getNotificationsEnabled() }
@@ -108,7 +126,8 @@ class AnChatApplication : Application() {
                         name = m.name,
                         description = m.description,
                         apiKey = "",
-                        apiUrl = DeepSeekConstants.DEFAULT_BASE_URL
+                        apiUrl = DeepSeekConstants.DEFAULT_BASE_URL,
+                        provider = ModelProviders.DEEPSEEK
                     )
                 }
             )
@@ -118,6 +137,8 @@ class AnChatApplication : Application() {
             .edit().remove("models_seeded").apply()
         // 启动补播未完成行为（中断重启续播）
         engine.catchUp()
+        // 清理历史遗留的「无法消除的红点」：封存对话/孤儿对话的未读行为翻已读（幂等）
+        engineScope.launch { localRepository.clearStuckUnread() }
         // 系统通知通道 + 引擎事件 → 推送
         // 通知推送下沉到「行为层」（EngineEvent.BehaviorDue），使用拆解后的回复气泡文本，
         // 而非 EngineEvent.AssistantMessage 的原始 API 返回（真实对话下 raw.content 是 JSON）。

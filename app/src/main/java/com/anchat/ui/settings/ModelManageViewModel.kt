@@ -2,20 +2,15 @@ package com.anchat.ui.settings
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
 import com.anchat.AnChatApplication
-import com.anchat.data.config.ModelConfig
-import com.anchat.data.remote.DeepSeekConstants
-import com.anchat.data.remote.ModelInfo
+import com.anchat.data.config.ModelProviders
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 
 /**
- * 模型管理：输入 apiKey + apiUrl → 拉取模型 → 多选 → 添加。
- * 添加后的模型（含 key / url）写入配置文件。
+ * 模型管理：选提供方 + 填 Key + 填模型名（原样作为 API 的 model 值）→ 保存为 1 条模型。
+ * 聊天地址由 [ModelProviders] 内置，不再由用户输入。
  */
 class ModelManageViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -28,74 +23,45 @@ class ModelManageViewModel(app: Application) : AndroidViewModel(app) {
     /** 默认模型 id（响应式） */
     val defaultModelId = repo.observeDefaultModelId()
 
+    private val _provider = MutableStateFlow(ModelProviders.DEEPSEEK)
+    val provider: StateFlow<String> = _provider.asStateFlow()
+
     private val _apiKey = MutableStateFlow("")
     val apiKey: StateFlow<String> = _apiKey.asStateFlow()
 
-    private val _apiUrl = MutableStateFlow(DeepSeekConstants.DEFAULT_BASE_URL)
-    val apiUrl: StateFlow<String> = _apiUrl.asStateFlow()
-
-    /** 拉取到的待选模型 */
-    private val _fetched = MutableStateFlow<List<ModelInfo>>(emptyList())
-    val fetched: StateFlow<List<ModelInfo>> = _fetched.asStateFlow()
-
-    private val _isFetching = MutableStateFlow(false)
-    val isFetching: StateFlow<Boolean> = _isFetching.asStateFlow()
+    private val _modelName = MutableStateFlow("")
+    val modelName: StateFlow<String> = _modelName.asStateFlow()
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    fun onProviderChange(id: String) { _provider.value = id }
     fun onKeyChange(text: String) { _apiKey.value = text }
-    fun onUrlChange(text: String) { _apiUrl.value = text }
+    fun onModelNameChange(text: String) { _modelName.value = text }
 
-    /** 步骤①：按 apiKey + apiUrl 拉取远端模型列表 */
-    fun fetch() {
+    /**
+     * 保存一条模型。唯一性 = 服务方 + 模型名：同一组合更新 Key；不同服务方同名可共存两条。
+     */
+    fun save() {
         val key = _apiKey.value.trim()
-        val url = _apiUrl.value.trim()
-        if (url.isBlank()) {
-            _message.value = "请填写 API 地址"
+        val model = _modelName.value.trim()
+        if (key.isBlank()) {
+            _message.value = "请填写 API Key"
             return
         }
-        viewModelScope.launch {
-            _isFetching.value = true
-            try {
-                val list = repo.fetchModels(key, url).first()
-                _fetched.value = list
-                _message.value = if (list.isEmpty()) {
-                    "未获取到模型，请检查地址与 Key"
-                } else {
-                    "获取到 ${list.size} 个模型，请勾选后添加"
-                }
-            } catch (e: Exception) {
-                _fetched.value = emptyList()
-                _message.value = "拉取失败：${e.message}"
-            } finally {
-                _isFetching.value = false
-            }
-        }
-    }
-
-    /** 步骤②+③+④：把勾选的模型连同 key / url 写入配置文件 */
-    fun addSelected(selectedIds: Set<String>) {
-        val list = _fetched.value.filter { it.id in selectedIds }
-        if (list.isEmpty()) {
-            _message.value = "请先勾选模型"
+        if (model.isBlank()) {
+            _message.value = "请填写模型名称"
             return
         }
-        val key = _apiKey.value.trim()
-        val url = _apiUrl.value.trim().removeSuffix("/")
-        repo.addModels(
-            list.map { m: ModelInfo ->
-                ModelConfig(
-                    id = m.id,
-                    name = m.name,
-                    description = m.description,
-                    apiKey = key,
-                    apiUrl = url
-                )
-            }
-        )
-        _fetched.value = emptyList()
-        _message.value = "已添加 ${list.size} 个模型"
+
+        val p = _provider.value
+        val existing = repo.getModels().firstOrNull { ModelProviders.sameModel(it, p, model) }
+        repo.addModel(p, key, model, existing?.id)
+        // 保留 Key，方便同一个 Key 连续添加多个模型
+        _modelName.value = ""
+        val label = ModelProviders.label(p)
+        _message.value = if (existing != null) "已更新模型：$model [$label]"
+        else "已保存模型：$model [$label]"
     }
 
     fun removeModel(id: String) {

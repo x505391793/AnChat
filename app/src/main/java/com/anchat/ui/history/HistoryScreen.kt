@@ -124,12 +124,16 @@ fun HistoryScreen(navController: NavHostController) {
                     val onDelete = remember(conv.id, viewModel) {
                         { viewModel.delete(conv.id) }
                     }
+                    val onArchive = remember(conv.id, viewModel) {
+                        { viewModel.archive(conv.id) }
+                    }
                     ConversationItem(
                         conversation = conv,
                         unreadCount = unread[conv.id] ?: 0,
                         onClick = onClick,
                         onPin = onPin,
-                        onDelete = onDelete
+                        onDelete = onDelete,
+                        onArchive = onArchive
                     )
                 }
             }
@@ -143,9 +147,10 @@ private fun ConversationItem(
     unreadCount: Int = 0,
     onClick: () -> Unit,
     onPin: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onArchive: () -> Unit
 ) {
-    val revealWidth = 160.dp
+    val revealWidth = 240.dp
     val density = LocalDensity.current
     val revealPx = with(density) { revealWidth.toPx() }
     val offset = remember { Animatable(0f) }
@@ -181,6 +186,15 @@ private fun ConversationItem(
                 modifier = Modifier.width(80.dp)
             ) {
                 Text("删除", color = Color(0xFFE54D42))
+            }
+            TextButton(
+                onClick = {
+                    onArchive()
+                    scope.launch { offset.animateTo(0f) }
+                },
+                modifier = Modifier.width(80.dp)
+            ) {
+                Text("封存", color = MaterialTheme.colorScheme.primary)
             }
         }
 

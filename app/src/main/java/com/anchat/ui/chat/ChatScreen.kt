@@ -30,7 +30,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,7 +47,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,15 +64,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.layout
 import kotlin.math.roundToInt
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -86,8 +101,6 @@ import androidx.compose.ui.platform.TextToolbar
 import androidx.compose.ui.platform.TextToolbarStatus
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.boundsInWindow
 import kotlinx.coroutines.flow.filter
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -222,6 +235,12 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
             val onDelete: (String) -> Unit = remember(viewModel) {
                 { viewModel.deleteMessage(it) }
             }
+            val onSaveEdit: (String, String) -> Unit = remember(viewModel) {
+                { id, newText -> viewModel.updateMessage(id, newText) }
+            }
+            val onRegenerate: (String) -> Unit = remember(viewModel) {
+                { viewModel.regenerateMessage(it) }
+            }
             val onAvatarClick: (Boolean) -> Unit = remember(navController, conversationId) {
                 { isUser ->
                     val id = conversationId
@@ -260,6 +279,8 @@ fun ChatScreen(navController: NavHostController, convId: Long = -1L, characterId
                         userAvatar = profile?.userAvatar,
                         showReasoning = thinkingEnabled,
                         onDelete = onDelete,
+                        onSaveEdit = onSaveEdit,
+                        onRegenerate = onRegenerate,
                         onAvatarClick = onAvatarClick
                     )
                 }
@@ -337,6 +358,8 @@ private fun ChatMessageItem(
     userAvatar: String? = null,
     showReasoning: Boolean = true,
     onDelete: (String) -> Unit = {},
+    onSaveEdit: (String, String) -> Unit = { _, _ -> },
+    onRegenerate: (String) -> Unit = {},
     onAvatarClick: ((isUser: Boolean) -> Unit)? = null
 ) {
     val isSystem = msg.role == "system"
@@ -448,7 +471,10 @@ private fun ChatMessageItem(
                 isUser = isUser,
                 dark = dark,
                 behaviorId = msg.behaviorId,
-                onDelete = onDelete
+                canRegenerate = isAssistant && msg.behaviorId != null,
+                onDelete = onDelete,
+                onSaveEdit = onSaveEdit,
+                onRegenerate = onRegenerate
             )
             if (isUser) {
                 Spacer(Modifier.width(8.dp))
@@ -465,9 +491,8 @@ private fun ChatMessageItem(
 
 @OptIn(ExperimentalFoundationApi::class)
 /**
- * 自定义文本工具栏：把系统浮动工具栏整体替换成我们这一个菜单
- * （全选 / 复制 / 删除），从而“一个菜单”与“可划选”两者兼得。
- * 微信就是这个思路——长按出现光标手柄（原生划选），同时只弹这一个菜单。
+ * 接管系统浮动文本工具栏：界面上的菜单已改成气泡底部的图标行，
+ * 这里只做两件事——抑制长按弹出的系统菜单，并把选区的复制/全选回调交给图标行使用。
  */
 private data class BubbleToolbarState(
     val onCopy: (() -> Unit)?,
@@ -476,13 +501,9 @@ private data class BubbleToolbarState(
     val onSelectAll: (() -> Unit)?
 )
 
-private class BubbleTextToolbar(
-    private val onDelete: () -> Unit
-) : TextToolbar {
+private class BubbleTextToolbar : TextToolbar {
     var data by mutableStateOf<BubbleToolbarState?>(null)
         private set
-
-    fun triggerDelete() = onDelete()
 
     override val status: TextToolbarStatus
         get() = if (data != null) TextToolbarStatus.Shown else TextToolbarStatus.Hidden
@@ -513,7 +534,10 @@ private fun MessageBubble(
     isUser: Boolean,
     dark: Boolean,
     behaviorId: String? = null,
-    onDelete: (String) -> Unit = {}
+    canRegenerate: Boolean = false,
+    onDelete: (String) -> Unit = {},
+    onSaveEdit: (String, String) -> Unit = { _, _ -> },
+    onRegenerate: (String) -> Unit = {}
 ) {
     // 微信配色：自己发出 = 浅绿 #95EC69（暗色深绿），对方 = 白（暗色深灰）
     val bubbleColor = if (isUser)
@@ -521,26 +545,31 @@ private fun MessageBubble(
     else
         (if (dark) Color(0xFF2C2C2C) else Color.White)
     val textColor = if (dark) Color(0xFFE5E5E5) else Color(0xFF181818)
+    val dividerColor = if (dark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.12f)
 
     // 显示端剥离 markdown 语法（API 不塞任何额外提示词，纯客户端处理）。
     // 用 remember 缓存：滚动回收 item 重 compose 时不再每屏重跑 6+ 条正则。
     val displayText = remember(text) { stripMarkdown(text) }
 
-    // 自定义文本工具栏（携带删除回调），接管系统浮动工具栏
-    val toolbar = remember(behaviorId) {
-        BubbleTextToolbar(onDelete = { if (behaviorId != null) onDelete(behaviorId) })
-    }
+    // 菜单态 / 编辑态 / 全选态：只对当前这一条气泡生效，item 滑出回收后自然复位
+    var menuOpen by remember(behaviorId) { mutableStateOf(false) }
+    var editing by remember(behaviorId) { mutableStateOf(false) }
+    var selecting by remember(behaviorId) { mutableStateOf(false) }
+    var draft by remember(behaviorId) { mutableStateOf(text) }
 
-    // 气泡在窗口中的位置/尺寸：仅当菜单（系统选区工具栏）打开时才需要，
-    // 因此 onGloballyPositioned 也只在菜单打开时挂载——避免滚动时每帧写 state
-    // 触发 MessageBubble 重组→再测量→坐标又变的死循环（滚动掉帧元凶）。
-    val tb = toolbar.data
-    val menuOpen = tb != null
-    var bubbleTopWindow by remember { mutableStateOf(0f) }
-    var bubbleHeightPx by remember { mutableStateOf(0) }
-    var bubbleWidthPx by remember { mutableStateOf(0) }
-    var menuHeightPx by remember { mutableStateOf(0) }
-    val density = LocalDensity.current
+    // 仅用于「抑制系统浮动菜单 + 拿选区复制回调」；真正的菜单是气泡底部的图标行
+    val toolbar = remember(behaviorId) { BubbleTextToolbar() }
+    val sel = toolbar.data
+    val clipboard = LocalClipboardManager.current
+    val focusManager = LocalFocusManager.current
+    val editFocus = remember { FocusRequester() }
+    val bid = behaviorId
+
+    val rowVisible = menuOpen || editing
+
+    // 外部文本变化（重新生成/编辑落库后回灌）时同步草稿，编辑中不覆盖用户正在改的内容
+    LaunchedEffect(text) { if (!editing) draft = text }
+    LaunchedEffect(editing) { if (editing) editFocus.requestFocus() }
 
     Box(
         modifier = Modifier
@@ -556,102 +585,172 @@ private fun MessageBubble(
                 .rotate(45f)
                 .background(bubbleColor)
         )
-        // 气泡本体：SelectionContainer(selection) 提供真实文本划选（长按出现光标手柄）；
-        // 系统浮动工具栏被我们的 BubbleTextToolbar 接管，只弹一个合并菜单。
-        // 注意：这里用 background(shape) 而非 clip，否则会裁掉浮在气泡外的菜单。
-        CompositionLocalProvider(LocalTextToolbar provides toolbar) {
-            SelectionContainer {
-                Box(
-                    modifier = Modifier
-                        .background(bubbleColor, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .let { mod ->
-                            if (menuOpen) {
-                                mod.onGloballyPositioned { coords ->
-                                    bubbleTopWindow = coords.boundsInWindow().top
-                                    bubbleHeightPx = coords.size.height
-                                    bubbleWidthPx = coords.size.width
-                                }
-                            } else mod
+        // 气泡本体：SelectionContainer 保留长按划选（光标手柄照旧），系统浮动菜单被
+        // BubbleTextToolbar 抑制；点一下气泡在「气泡底端」展开半透明图标行（编辑态点空白处=保存）。
+        Box(
+            modifier = Modifier
+                .background(bubbleColor, RoundedCornerShape(8.dp))
+                .pointerInput(bid, editing) {
+                    detectTapGestures(onTap = {
+                        if (editing) {
+                            val t = draft.trim()
+                            editing = false
+                            menuOpen = false
+                            focusManager.clearFocus()
+                            if (t.isNotEmpty() && t != text && bid != null) onSaveEdit(bid, t)
+                        } else {
+                            menuOpen = !menuOpen
+                            if (!menuOpen) selecting = false
                         }
-                ) {
-                    Text(
-                        text = displayText,
-                        color = textColor,
-                        style = MaterialTheme.typography.bodyMedium
+                    })
+                }
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Column {
+                CompositionLocalProvider(LocalTextToolbar provides toolbar) {
+                    Box(Modifier.align(if (isUser) Alignment.End else Alignment.Start)) {
+                        when {
+                            editing -> BasicTextField(
+                                value = draft,
+                                onValueChange = { draft = it },
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = textColor),
+                                cursorBrush = SolidColor(textColor),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(editFocus)
+                            )
+                            selecting -> SelectAllText(text = displayText, color = textColor)
+                            else -> SelectionContainer {
+                                Text(
+                                    text = displayText,
+                                    color = textColor,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                    }
+                }
+                if (rowVisible) {
+                    Spacer(Modifier.height(4.dp))
+                    BubbleActionRow(
+                        editing = editing,
+                        dark = dark,
+                        iconTint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                        dividerColor = dividerColor,
+                        canEdit = bid != null,
+                        canRegenerate = canRegenerate && bid != null,
+                        onSave = {
+                            val t = draft.trim()
+                            editing = false
+                            menuOpen = false
+                            focusManager.clearFocus()
+                            if (t.isNotEmpty() && t != text && bid != null) onSaveEdit(bid, t)
+                        },
+                        onCancel = {
+                            draft = text
+                            editing = false
+                            menuOpen = false
+                            focusManager.clearFocus()
+                        },
+                        onSelectAll = { selecting = true },
+                        onCopy = {
+                            val copy = sel?.onCopy
+                            if (copy != null) copy.invoke()
+                            else clipboard.setText(AnnotatedString(displayText))
+                            selecting = false
+                        },
+                        onDelete = { menuOpen = false; if (bid != null) onDelete(bid) },
+                        onEdit = { draft = text; editing = true },
+                        onRegenerate = { menuOpen = false; if (bid != null) onRegenerate(bid) },
+                        modifier = Modifier.align(if (isUser) Alignment.End else Alignment.Start)
                     )
                 }
             }
         }
 
-        // 唯一合并菜单：仅由系统 showMenu/hide 驱动（toolbar.data 是否为空），
-        // 绝不在本地手动 hide——否则选区仍在会触发系统反复 showMenu，形成“一直跳出来”的死循环。
-        // 关键修复：菜单位置夹在可视区内——气泡上方够放就放上方，不够（短气泡贴顶）就放到气泡
-        // 下方，避免菜单跑到屏幕外、逼 LazyColumn 上滚把气泡顶出去。
-        if (tb != null) {
-            val mh = if (menuHeightPx == 0) with(density) { 48.dp.toPx() }.toInt() else menuHeightPx
-            val menuH = density.run { mh.toDp() }
-            val bubbleTop = density.run { bubbleTopWindow.toDp() }
-            val placeAbove = bubbleTop - menuH - 8.dp >= 0.dp
-            val offsetY = if (placeAbove) {
-                -(menuH + 8.dp)
-            } else {
-                density.run { bubbleHeightPx.toDp() } + 8.dp
+    }
+}
+
+/** 气泡底端的图标行：半透明 tint + 小尺寸，低存在感；点击热区靠 padding 撑开 */
+@Composable
+private fun BubbleActionRow(
+    editing: Boolean,
+    dark: Boolean,
+    iconTint: Color,
+    dividerColor: Color,
+    canEdit: Boolean,
+    canRegenerate: Boolean,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+    onSelectAll: () -> Unit,
+    onCopy: () -> Unit,
+    onDelete: () -> Unit,
+    onEdit: () -> Unit,
+    onRegenerate: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val danger = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (dark) Color(0xFF1C1C1C).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f))
+            .padding(horizontal = 2.dp, vertical = 1.dp)
+    ) {
+        if (editing) {
+            BubbleAction(Icons.Filled.Check, "保存", iconTint, onSave)
+            Box(Modifier.width(1.dp).height(14.dp).background(dividerColor))
+            BubbleAction(Icons.Filled.Close, "取消", iconTint, onCancel)
+        } else {
+            BubbleAction(Icons.Outlined.SelectAll, "全选", iconTint, onSelectAll)
+            BubbleAction(Icons.Outlined.ContentCopy, "复制", iconTint, onCopy)
+            if (canEdit) {
+                BubbleAction(Icons.Outlined.Delete, "删除", danger, onDelete)
+                BubbleAction(Icons.Outlined.Edit, "修改", iconTint, onEdit)
             }
-            // 关键修复：菜单用 Modifier.layout 把自身对外报告为 0 尺寸，因此不参与外层
-            // Box 的尺寸测量——容器只按气泡定宽，气泡位置稳定、绝不会被菜单挤动。菜单以
-            // 气泡宽度为中心手动定位（横向居中、纵向按 placeAbove 上下），超宽时向两侧溢出。
-            Box(
-                modifier = Modifier.layout { measurable, constraints ->
-                    val placeable = measurable.measure(constraints)
-                    layout(0, 0) {
-                        val x = ((bubbleWidthPx - placeable.width) / 2f).roundToInt()
-                        val y = density.run { offsetY.toPx() }.roundToInt()
-                        placeable.placeRelative(x, y)
-                    }
-                }
-            ) {
-                // 菜单配色随主题：浅色=纯白底深字；深色=深灰面板浅字（暗色绝不纯白刺眼）
-                val menuBg = if (dark) Color(0xFF212121) else Color.White
-                val menuDivider = if (dark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.12f)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(menuBg)
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                        .onSizeChanged { menuHeightPx = it.height }
-                ) {
-                    CompactAction("全选") { tb.onSelectAll?.invoke() }
-                    VerticalDivider(
-                        modifier = Modifier.height(20.dp),
-                        color = menuDivider
-                    )
-                    CompactAction("复制") { tb.onCopy?.invoke() }
-                    VerticalDivider(
-                        modifier = Modifier.height(20.dp),
-                        color = menuDivider
-                    )
-                    CompactAction("删除", danger = true) { toolbar.triggerDelete() }
-                }
+            if (canRegenerate) {
+                BubbleAction(Icons.Outlined.Refresh, "重新生成", iconTint, onRegenerate)
             }
         }
     }
 }
 
+/** 全选态：只读文本框（聚焦才能画出选区），长按可继续调选区，复制走系统选区回调 */
 @Composable
-private fun CompactAction(
+private fun SelectAllText(text: String, color: Color) {
+    var value by remember(text) {
+        mutableStateOf(TextFieldValue(text, TextRange(0, text.length)))
+    }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(text) { focus.requestFocus() }
+    BasicTextField(
+        value = value,
+        onValueChange = { value = it },
+        readOnly = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = color),
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focus)
+    )
+}
+
+/** 图标行里的单个动作：低存在感（半透明 tint + 小尺寸），点击热区仍够大 */
+@Composable
+private fun BubbleAction(
+    icon: ImageVector,
     label: String,
-    danger: Boolean = false,
+    tint: Color,
     onClick: () -> Unit
 ) {
-    Text(
-        text = label,
-        color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-        style = MaterialTheme.typography.labelMedium,
+    Icon(
+        imageVector = icon,
+        contentDescription = label,
+        tint = tint,
         modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 7.dp, vertical = 6.dp)
+            .size(18.dp)
     )
 }
 

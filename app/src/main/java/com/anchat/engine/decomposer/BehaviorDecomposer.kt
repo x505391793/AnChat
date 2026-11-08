@@ -1,5 +1,6 @@
 package com.anchat.engine.decomposer
 
+import com.anchat.data.config.ModelProviders
 import com.anchat.engine.core.contract.ApiMessage
 import com.anchat.engine.core.contract.Behavior
 import com.anchat.engine.core.contract.BehaviorType
@@ -56,7 +57,7 @@ class BehaviorDecomposer(private val requestSink: RequestSink) {
     suspend fun decompose(rawContent: String, rawId: String, spec: DecompositionSpec, ownerConversationId: String = "", persistence: PersistenceSink): List<Behavior> {
         val convIdForBehavior = ownerConversationId
         val convId = ownerConversationId.ifBlank { "system" }
-        val isDeepseek = spec.modelId.contains("deepseek", ignoreCase = true)
+        val isDeepseek = ModelProviders.needsJsonObject(spec.provider, spec.modelId)
         val messages = listOf(
             ApiMessage("system", analyzerSystem),
             ApiMessage("user", "文本：$rawContent")

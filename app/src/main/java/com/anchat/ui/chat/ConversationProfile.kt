@@ -35,5 +35,7 @@ data class ConversationProfile(
     /** 是否开启思考模式 */
     val thinkingEnabled: Boolean,
     /** 是否开启「真实对话」：开启则原始回复进入行为拆解，由行为层驱动 UI */
-    val realConversation: Boolean = false
+    val realConversation: Boolean = false,
+    /** 勾选的世界书 id（逗号分隔）；拼 system 提示词时按 id 升序拼接以保证缓存稳定 */
+    val worldBookIds: String = ""
 )

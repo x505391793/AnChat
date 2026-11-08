@@ -1,5 +1,6 @@
 package com.anchat.engine.sender
 
+import com.anchat.data.config.ModelProviders
 import com.anchat.engine.core.contract.ApiMessage
 import com.anchat.engine.core.contract.ConversationContext
 import com.anchat.engine.core.contract.ChatMessageRecord
@@ -49,8 +50,8 @@ class RequestBuilder {
                 msgs += ApiMessage(it.role, it.content)
             }
         }
-        // v2：主请求即要求 JSON 输出（DeepSeek 需显式声明 response_format）
-        val isDeepseek = context.modelId.contains("deepseek", ignoreCase = true)
+        // v2：主请求即要求 JSON 输出（仅 DeepSeek 官方需显式声明 response_format）
+        val isDeepseek = ModelProviders.needsJsonObject(context.provider, context.modelId)
         val responseFormat = if (isV2 && isDeepseek) "json_object" else null
         Log.d("ANCHAT_REQ", "=== buildSpec: conversation=${context.conversationId} historySize=${history.size} ===")
         history.forEachIndexed { i, h ->

@@ -40,4 +40,8 @@ class HistoryViewModel(app: Application) : AndroidViewModel(app) {
     fun togglePin(id: Long, pinned: Boolean) {
         viewModelScope.launch { repo.setPinned(id, pinned) }
     }
+
+    fun archive(id: Long) {
+        viewModelScope.launch { repo.archiveConversation(id) }
+    }
 }

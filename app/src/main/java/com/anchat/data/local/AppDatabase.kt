@@ -12,15 +12,17 @@ import com.anchat.data.engine.RawReplyDao
 import com.anchat.data.engine.RawReplyEntity
 import com.anchat.data.local.dao.CharacterDao
 import com.anchat.data.local.dao.ConversationDao
+import com.anchat.data.local.dao.WorldBookDao
 import com.anchat.data.local.entity.CharacterEntity
 import com.anchat.data.local.entity.Conversation
+import com.anchat.data.local.entity.WorldBook
 
 @Database(
     entities = [
         Conversation::class, CharacterEntity::class,
-        RawReplyEntity::class, BehaviorEntity::class
+        RawReplyEntity::class, BehaviorEntity::class, WorldBook::class
     ],
-    version = 23,
+    version = 25,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -29,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun rawReplyDao(): RawReplyDao
     abstract fun behaviorDao(): BehaviorDao
+    abstract fun worldBookDao(): WorldBookDao
 
     companion object {
         private const val DB_NAME = "anchat.db"
@@ -285,6 +288,64 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v23 → v24：conversations 增加 archived（封存为故事标志）与 story_text（故事纯文本）。
+        // archived 为 NOT NULL（Boolean 实体字段必须非空，否则与迁移列 notNull 不一致导致启动崩溃），
+        // story_text 可空（String?）不加 NOT NULL。
+        private val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE conversations ADD COLUMN story_text TEXT")
+            }
+        }
+
+        // v24 → v25：新增 world_book 表（世界书）；character 增加 world_book_ids（NOT NULL DEFAULT ''，
+        // 与实体 worldBookIds:String 非空一致，否则 notNull 不一致启动崩溃）；
+        // conversations 增加 world_book_ids（可空，对话快照可跟随主角色卡）。
+        // 均不删任何现有数据。
+        //
+        // 列名铁律：WorldBook 实体未写 @ColumnInfo，Room 默认列名 = 字段名（驼峰 createdAt/updatedAt），
+        // 迁移 SQL 必须一致，写成 created_at/updated_at 会导致 schema 校验失败、启动闪退。
+        // 全程幂等：上一次失败的迁移可能已留下错误结构的表/列，故先探测再执行。
+        private val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 旧的错误表（snake_case 列名）直接重建：该表此前从未写入过任何数据，无丢失风险
+                if (tableExists(db, "world_book") && hasColumn(db, "world_book", "created_at")) {
+                    db.execSQL("DROP TABLE world_book")
+                }
+                if (!tableExists(db, "world_book")) {
+                    db.execSQL(
+                        """CREATE TABLE world_book (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            title TEXT NOT NULL,
+                            content TEXT NOT NULL,
+                            createdAt INTEGER NOT NULL,
+                            updatedAt INTEGER NOT NULL
+                        )"""
+                    )
+                }
+                if (!hasColumn(db, "character", "world_book_ids")) {
+                    db.execSQL("ALTER TABLE character ADD COLUMN world_book_ids TEXT NOT NULL DEFAULT ''")
+                }
+                if (!hasColumn(db, "conversations", "world_book_ids")) {
+                    db.execSQL("ALTER TABLE conversations ADD COLUMN world_book_ids TEXT")
+                }
+            }
+        }
+
+        private fun tableExists(db: SupportSQLiteDatabase, table: String): Boolean =
+            db.query("SELECT name FROM sqlite_master WHERE type='table' AND name=?", arrayOf(table))
+                .use { it.moveToFirst() }
+
+        private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean =
+            db.query("PRAGMA table_info($table)").use { c ->
+                val idx = c.getColumnIndex("name")
+                if (idx < 0) return false
+                while (c.moveToNext()) {
+                    if (c.getString(idx) == column) return true
+                }
+                false
+            }
+
     @Volatile
     private var INSTANCE: AppDatabase? = null
 
@@ -295,7 +356,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DB_NAME
             )
-            .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23)
+            .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
             .build().also { INSTANCE = it }
         }
     }

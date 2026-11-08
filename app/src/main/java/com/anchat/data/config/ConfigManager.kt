@@ -71,6 +71,22 @@ class ConfigManager(private val context: Context) {
         persist { cfg -> cfg.copy(developerMode = enabled) }
     }
 
+    // ─── 故事集阅读进度（对话 id → 比例） ───
+    private val _storyProgress = MutableStateFlow(load().storyProgress)
+    val storyProgressFlow: StateFlow<Map<String, Float>> = _storyProgress.asStateFlow()
+
+    fun getStoryProgress(convId: Long): Float =
+        _storyProgress.value[convId.toString()]?.coerceIn(0f, 1f) ?: 0f
+
+    fun setStoryProgress(convId: Long, ratio: Float) {
+        val r = ratio.coerceIn(0f, 1f)
+        persist { cfg -> cfg.copy(storyProgress = cfg.storyProgress + (convId.toString() to r)) }
+    }
+
+    fun clearStoryProgress(convId: Long) {
+        persist { cfg -> cfg.copy(storyProgress = cfg.storyProgress - convId.toString()) }
+    }
+
     // ─── 模型（含各自的 apiKey / apiUrl） ─────────
     private val _models = MutableStateFlow(load().models)
     val modelsFlow: StateFlow<List<ModelConfig>> = _models.asStateFlow()
@@ -143,6 +159,7 @@ class ConfigManager(private val context: Context) {
         _defaultUserAvatar.value = cfg.defaultUserAvatar
         _defaultUserGender.value = cfg.defaultUserGender
         _defaultUserWechatId.value = cfg.defaultUserWechatId
+        _storyProgress.value = cfg.storyProgress
     }
 
     /**
@@ -164,6 +181,7 @@ class ConfigManager(private val context: Context) {
         _defaultUserAvatar.value = newConfig.defaultUserAvatar
         _defaultUserGender.value = newConfig.defaultUserGender
         _defaultUserWechatId.value = newConfig.defaultUserWechatId
+        _storyProgress.value = newConfig.storyProgress
     }
 
     /** SAF tree URI if the user picked a custom directory. Null = File mode. */

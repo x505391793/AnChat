@@ -3,8 +3,10 @@ package com.anchat.data.local.entity
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 @Entity(tableName = "character")
+@Serializable
 data class CharacterEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
@@ -47,6 +49,9 @@ data class CharacterEntity(
 
     /** 真实对话版本（real_conversation 开启后走哪条行为生成路径）；默认 v1 */
     @ColumnInfo(name = "real_conv_version") val realConvVersion: String = "v1",
+
+    /** 勾选的世界书 id 列表（逗号分隔，升序无关——读取时按 id 排序拼接以保证缓存稳定） */
+    @ColumnInfo(name = "world_book_ids") val worldBookIds: String = "",
 
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()

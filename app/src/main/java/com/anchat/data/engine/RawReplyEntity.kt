@@ -3,9 +3,11 @@ package com.anchat.data.engine
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 /** 原始回复表：模型面向，用于缓存命中 / 审计，不直接给用户看 */
 @Entity(tableName = "raw_replies")
+@Serializable
 data class RawReplyEntity(
     @PrimaryKey val id: String,                    // rawId
     @ColumnInfo(name = "conversation_id") val conversationId: String,

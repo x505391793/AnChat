@@ -3,12 +3,14 @@ package com.anchat.data.engine
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 /**
  * 行为表：用户视角完整消息表。batchId = 源 raw.id，兼作 FK。
  * `order` 是 SQLite 关键字，列名用反引号包裹。
  */
 @Entity(tableName = "behaviors")
+@Serializable
 data class BehaviorEntity(
     @PrimaryKey val id: String,                 // behaviorId
     @ColumnInfo(name = "batch_id") val batchId: String = "",
